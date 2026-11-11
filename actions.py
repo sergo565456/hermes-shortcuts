@@ -96,7 +96,10 @@ _FENCE_LIKE = re.compile(rf"[{_LT}]{{2,}}|[{_GT}]{{2,}}|(?:END[\W_]*)?SHARED[\W_
 # sessions (full tools) trust, or exfiltrate old chats through a web_extract URL.
 SAFE_TOOLSETS: dict[str, list[str]] = {
     "ask": ["web", "vision", "cronjob", "todo", "no_mcp"],
-    "event": ["web", "cronjob", "todo", "session_search", "no_mcp"],
+    # No web and no session_search: an event turn reads reminder prompts (often built from shared
+    # content) and, with session_search, every past chat; with web or a forwarded link that is an
+    # exfiltration channel. The default event prompts only need the reminder list.
+    "event": ["cronjob", "todo", "no_mcp"],
     "remember": ["web", "vision", "memory", "no_mcp"],
     "remind": ["web", "vision", "cronjob", "no_mcp"],
     "_shared": ["web", "vision", "no_mcp"],  # summarize, auto, post, receipt, whiteboard, document
@@ -116,6 +119,7 @@ ALWAYS_BLOCKED = {"terminal", "process", "execute_code", "read_file", "write_fil
                   "delegate_task", "skill_manage", "manage_connections", "send_message", "clarify"}
 CRON_TOOL_NAMES = {"cronjob_manage", "cronjob"}
 CRON_ALLOWED_ACTIONS = {"create", "list"}
+MAX_REMINDERS_PER_TURN = 3
 CRON_FORBIDDEN_ARGS = ("script", "monitor", "monitor_script", "monitor_url", "no_agent", "context_from",
                        "continuity", "workdir", "attach_to_session", "skill", "skills", "model", "provider",
                        "base_url", "interpreter")
@@ -129,7 +133,10 @@ def normalize_action(value: Optional[str]) -> Optional[str]:
     """Canonical action name or None when unknown (non-strings are unknown, not a crash)."""
     if value is not None and not isinstance(value, str):
         return None
-    key = re.sub(r"[^a-z]", "", (value or "").strip().lower())
+    raw = unicodedata.normalize("NFKC", value or "").strip().lower()
+    key = re.sub(r"[^a-z]", "", raw)
+    if raw and not key:
+        return None  # e.g. emoji / non-Latin text: unknown, not silently "auto"
     key = ALIASES.get(key, key)
     return key if key in ACTIONS else None
 
@@ -161,6 +168,23 @@ def neutralize_fences(text: str) -> str:
     return _FENCE_LIKE.sub(_sub, folded)
 
 
+# Hermes core expands ``@file:``/``@folder:``/``@url:``/``@git:``/``@diff``/``@staged`` (and plugin
+# ``@<kind>:`` prefixes) in EVERY inbound gateway message before the agent runs, with no tool call, so the
+# pre_tool_call policy never sees it: ``@file:.hermes/logs/gateway.log`` in shared text inlined the
+# file (cwd = the gateway's home) outside our fence. Untrusted text gets a fullwidth ``＠`` instead.
+_CONTEXT_REF = re.compile(r"@(?=(?:diff|staged)\b|[A-Za-z][A-Za-z0-9_-]*:)", re.IGNORECASE)
+
+
+def neutralize_context_refs(text: str) -> str:
+    """Defang ``@kind:`` / ``@diff`` / ``@staged`` so Hermes' @-reference expander ignores them.
+    Run AFTER NFKC folding (NFKC turns ``＠`` back into ``@``)."""
+    return _CONTEXT_REF.sub("\uff20", text or "")
+
+
+def neutralize_untrusted(text: str) -> str:
+    return neutralize_context_refs(neutralize_fences(text))
+
+
 def toolsets_for_action(action: str, profile: str = "safe", overrides: Optional[dict] = None) -> Optional[list[str]]:
     """Toolsets for a shortcuts turn, or None to inherit the platform default (profile ``full``)."""
     if (profile or "safe").strip().lower() == "full":
@@ -181,16 +205,16 @@ def build_prompt(action: str, *, text: str = "", url: str = "", when: str = "", 
         body = text or url
         if url and text and url not in text:
             body = f"{text}\n{url}"
-        return defang_command(body)
-    when = neutralize_fences(when).replace("{", "(").replace("}", ")")
+        return defang_command(neutralize_context_refs(body))
+    when = neutralize_untrusted(when).replace("{", "(").replace("}", ")")
     instruction = ACTIONS[action].format(when=when or "tomorrow at 09:00 in my timezone")
     if note:
-        instruction += f"\nExtra instruction from the user: {neutralize_fences(note)}"
+        instruction += f"\nExtra instruction from the user: {neutralize_untrusted(note)}"
     parts = []
     if url:
-        parts.append(f"URL: {neutralize_fences(url)}")
+        parts.append(f"URL: {neutralize_untrusted(url)}")
     if text:
-        parts.append(neutralize_fences(text))
+        parts.append(neutralize_untrusted(text))
     if has_attachment:
         parts.append(f"[attached {attachment_kind or 'file'}: see the attachment on this message]")
     shared = "\n".join(parts) if parts else "(nothing besides the attachment)"
@@ -340,7 +364,7 @@ def client_bucket(ip_text: str) -> Optional[str]:
 
 
 def tool_policy(tool_name: str, args, toolsets: Optional[list[str]], allowed_names: set[str],
-                deliver_ok: set[str]) -> Optional[dict]:
+                deliver_ok: set[str], max_repeat: int = 1, creates_so_far: int = 0) -> Optional[dict]:
     """pre_tool_call decision for a shortcuts turn. ``toolsets`` None = profile ``full`` (no policy).
     Returns None to allow, ``{"action": "block", ...}`` or ``{"action": "modify", ...}``."""
     if toolsets is None:
@@ -367,10 +391,34 @@ def tool_policy(tool_name: str, args, toolsets: Optional[list[str]], allowed_nam
             if val and val not in deliver_ok:
                 return {"action": "block", "message": f"Reminders from phone Shortcuts can only be delivered to "
                                                       f"your home channel ({', '.join(sorted(deliver_ok))})."}
+        if creates_so_far >= MAX_REMINDERS_PER_TURN:
+            return {"action": "block", "message": f"At most {MAX_REMINDERS_PER_TURN} reminders per phone request."}
         # The job runs unattended later; give it no tools so its prompt (often shared content) can only
-        # produce reminder text, never a terminal/file/web session.
-        return {"action": "modify", "args": {"enabled_toolsets": []}}
+        # produce reminder text, never a terminal/file/web session. Repeats are capped (default: one
+        # shot) so injected text cannot start an every-minute job that bills the model and spams
+        # Telegram forever while the phone side cannot remove it.
+        mod: dict = {"enabled_toolsets": []}
+        try:
+            rep = int(a.get("repeat")) if a.get("repeat") not in (None, "") else None
+        except (TypeError, ValueError):
+            rep = None
+        cap = max(1, int(max_repeat))
+        mod["repeat"] = cap if rep is None or rep < 1 or rep > cap else rep
+        return {"action": "modify", "args": mod}
     return None
+
+
+_MD_LINK = re.compile(r"!?\[([^\]\n]{0,300})\]\(\s*<?([^)\s>]+)>?(?:\s+\"[^\"]*\")?\s*\)")
+_BARE_URL = re.compile(r"(?<![`\w])((?:https?|ftp)://[^\s`<>()\[\]]+|www\.[^\s`<>()\[\]]+)", re.IGNORECASE)
+
+
+def forward_safe_text(text: str) -> str:
+    """Text for the Telegram forward: hidden markdown links become visible ``label (url)`` and every URL
+    is put in a code span, so Telegram makes no link entity and no link preview. Otherwise a reply
+    steered by shared content could carry data in a URL that Telegram's servers fetch on delivery
+    (zero-click), or a trusted-looking hidden link."""
+    t = _MD_LINK.sub(lambda m: f"{m.group(1)} ({m.group(2)})" if m.group(1).strip() else m.group(2), text or "")
+    return _BARE_URL.sub(lambda m: "`" + m.group(1).replace("`", "") + "`", t)
 
 
 _SAFE_NAME = re.compile(r"[^A-Za-z0-9._ -]")

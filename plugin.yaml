@@ -62,6 +62,10 @@ optional_env:
     description: "safe (default: per-action toolsets, no terminal/file/code/browser) or full (platform default toolset)"
     prompt: "Tool profile (safe/full)"
     password: false
+  - name: SHORTCUTS_MAX_REMINDER_REPEAT
+    description: "Max runs of a reminder created from the phone (default 1 = one-shot; max 100). Phone-created jobs can't be removed from the phone"
+    prompt: "Max reminder repeats"
+    password: false
   - name: SHORTCUTS_CLIENT_IP_HEADER
     description: "Client IP header set by your local tunnel/proxy (e.g. CF-Connecting-IP); used only for the auth lockout, only from a loopback peer"
     prompt: "Client IP header (optional)"

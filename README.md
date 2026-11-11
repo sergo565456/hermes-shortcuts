@@ -125,15 +125,17 @@ keys `ask`, `event`, `remember`, `remind`, `_shared`; values are Hermes toolset 
 | `remember` | `web`, `vision`, `memory` |
 | `remind` | `web`, `vision`, `cronjob` |
 | `ask` (Siri) | `web`, `vision`, `cronjob`, `todo` |
-| events | `web`, `cronjob`, `todo`, `session_search` |
+| events | `cronjob`, `todo` |
 
 Every list also carries `no_mcp`, so your globally enabled MCP servers are **not** added to shortcuts turns.
 On top of that, a `pre_tool_call` hook (active only in shortcuts sessions, fail-closed) blocks any tool outside the
 action's list (other plugins' tools, MCP tools, terminal/file/code even if a Hermes fallback widened the toolset), lets
 `cronjob` only **create** or **list** jobs (no update/remove/run, no `script`, `no_agent`, `monitor`, `workdir`,
 `context_from`, skills or model/provider), allows delivery only to your home channel, and forces every job created from
-the phone to run with **no tools** (`enabled_toolsets: []`). Without that, a reminder job would run later with your cron
-toolset, which includes the terminal by default.
+the phone to run with **no tools** (`enabled_toolsets: []`) and **once** (`repeat: 1`; raise the cap with
+`SHORTCUTS_MAX_REMINDER_REPEAT`, max 100), at most 3 per request. Without that, a reminder job would run later with your
+cron toolset, which includes the terminal by default, and injected text could start an every-minute job you can only
+remove from Telegram or the CLI.
 
 Backstop for the unlikely case that the plugin fails to load its hook: pin the platform's default too, so a Hermes
 fallback can never be the full toolset:
@@ -250,7 +252,11 @@ The reply goes to Telegram.
 * **Untrusted input / prompt injection:** links, PDFs, images and text you share can contain instructions aimed at the
   agent. Shared content is fenced with a random per-request marker, fence-like text inside it is neutralised, control
   characters are stripped, text is capped at 8,000 chars, and slash commands / gateway control are disabled
-  (`allow_gateway_control=False`). Fencing reduces but cannot eliminate injection; the restricted toolset is what limits
+  (`allow_gateway_control=False`). **@-references are defanged:** Hermes core expands `@file:`, `@folder:`, `@url:`,
+  `@git:`, `@diff` in *every* inbound message before the agent runs (no tool call, so no tool policy applies), relative to
+  the gateway's working directory; in shared text the plugin turns `@` into `＠` so a shared note cannot pull e.g.
+  `~/.hermes/logs/gateway.log` (your Telegram message previews) into the turn. `/v1/share` with `action=ask` is run as a
+  fenced `auto` turn. Fencing reduces but cannot eliminate injection; the restricted toolset is what limits
   the damage. Hermes' own web tools block private/internal addresses (SSRF), but in the `full` profile the agent can
   still reach them through the terminal. **Stored injection:** `remember` writes shared content into long-term memory, and memory is part of the
   system prompt of *every* later session, including Telegram/CLI sessions that have the terminal. Use `remember` only
@@ -258,7 +264,11 @@ The reply goes to Telegram.
   the cron prompt; jobs created from the phone run with no tools, so at worst they deliver odd text.
 * **Exfiltration:** every turn sees your memory and user profile (as on every platform). A malicious page could try
   to make the agent put that text into a `web_extract`/`web_search` URL. The safe profile keeps `session_search`
-  (your whole chat history) out of `ask` and the share actions for that reason.
+  (your whole chat history) out of every action, and events get no web tools.
+* **Link previews (zero-click):** Telegram fetches a preview of the first link in a bot message from its servers, so a
+  URL in a forwarded reply is fetched without you tapping it. The plugin puts every URL of a forwarded reply in a code
+  span (no link, no preview) and shows hidden markdown links as `text (url)`. Also set
+  `platforms.telegram.extra.disable_link_previews: true` in `config.yaml` to cover Telegram replies from other sessions.
 * **Limits:** uploads ≤ 15 MB per request and 200 MB per hour (configurable), ≤ 4 files, 20 requests/min, 3 concurrent,
   auth-failure lockout (10 failures / 5 min per client, which never locks out the valid token). Images are
   type-sniffed by magic bytes; HEIC is rejected; document names are reduced to a safe basename. Files from a rejected

@@ -3,8 +3,8 @@
 Each accepted request becomes one inbound gateway message on the ``shortcuts`` platform (fresh chat
 per request, user ``owner``). The gateway runs the normal agent turn (tools, approvals, memory) and
 calls :meth:`ShortcutsAdapter.send` with the reply; we hand that text back in the HTTP response and,
-when asked (or when the sync wait times out), forward it to the user's home channel through the
-public ``send_message`` tool via ``ctx.dispatch_tool``.
+when asked (or when the sync wait times out), forward it to the user's home channel through that
+platform's live adapter (URLs in code spans: no link previews, no hidden links).
 
 Security: bearer token (hashed constant-time compare, 32+ chars, placeholders refused), loopback bind
 unless SHORTCUTS_ALLOW_PUBLIC_BIND=true, body/upload size caps and an hourly upload budget, sliding-window
@@ -12,7 +12,8 @@ rate limit, per-client auth-failure lockout that never locks out the valid token
 requests, payload fenced as untrusted data with a per-request marker, no gateway control/slash commands,
 a restricted per-action toolset (no terminal/file/code/browser/MCP) unless SHORTCUTS_TOOL_PROFILE=full,
 enforced twice: toolsets_for_source and a fail-closed pre_tool_call allowlist (which also limits cronjob to
-create/list and gives created jobs no tools).
+create/list, gives created jobs no tools and caps their repeats), and @-references (``@file:`` etc.,
+which Hermes core expands in every inbound message) defanged in shared text.
 The plugin never logs the token or request bodies (Hermes core logs a short preview of each inbound
 message, like on every platform).
 """
@@ -144,6 +145,7 @@ class _Pending:
     timed_out: bool = False
     forward_on_timeout: bool = True
     completed_empty: bool = False
+    reminders: int = 0
     started: float = field(default_factory=time.monotonic)
 
 
@@ -164,6 +166,10 @@ class ShortcutsAdapter(BasePlatformAdapter):
         self._upload_budget = A.ByteBudget(_int(_setting(extra, "max_upload_mb_per_hour", "SHORTCUTS_MAX_UPLOAD_MB_PER_HOUR",
                                                          200), 200, 1, 10000) * 1024 * 1024)
         self._max_concurrent = _int(extra.get("max_concurrent", 3), 3, 1, 16)
+        # Max runs of a reminder created from the phone (1 = one-shot). Recurring reminders need a higher
+        # value on purpose: phone-created jobs cannot be removed from the phone.
+        self._max_reminder_repeat = _int(_setting(extra, "max_reminder_repeat", "SHORTCUTS_MAX_REMINDER_REPEAT", 1),
+                                         1, 1, 100)
         self._inflight = 0
         profile = str(_setting(extra, "tool_profile", "SHORTCUTS_TOOL_PROFILE", "safe")).strip().lower()
         if profile not in A.TOOL_PROFILES:
@@ -264,7 +270,15 @@ class ShortcutsAdapter(BasePlatformAdapter):
         deliver_ok = {"origin", "local", PLATFORM}
         if self._notify_target and self._notify_target.lower() != "none":
             deliver_ok.add(self._notify_target.lower())
-        return A.tool_policy(tool_name, args, toolsets, _allowed_tool_names(tuple(toolsets)), deliver_ok)
+        pending = self._pending.get(str(chat_id or ""))
+        decision = A.tool_policy(tool_name, args, toolsets, _allowed_tool_names(tuple(toolsets)), deliver_ok,
+                                 max_repeat=self._max_reminder_repeat,
+                                 creates_so_far=pending.reminders if pending is not None else 0)
+        if decision is not None and decision.get("action") == "modify" and str(tool_name) in A.CRON_TOOL_NAMES:
+            if pending is None:  # a create outside a live request has no budget to charge: refuse
+                return {"action": "block", "message": "Reminder creation needs a live phone request."}
+            pending.reminders += 1
+        return decision
 
     # -- outbound (agent -> phone) --------------------------------------------------------------------
 
@@ -317,12 +331,12 @@ class ShortcutsAdapter(BasePlatformAdapter):
 
         Uses the live adapter of that platform that the gateway runner exposes to every adapter
         (``self.gateway_runner.adapters`` + the gateway config's home channel), the same route the
-        built-in webhook adapter uses for cross-platform delivery; falls back to the public
-        ``send_message`` tool through ``ctx.dispatch_tool`` when no runner is attached."""
+        built-in webhook adapter uses for cross-platform delivery. URLs are put in code spans
+        (no link preview, no hidden links); see actions.forward_safe_text."""
         target = (self._notify_target or "").strip().lower()
         if not target or target == "none" or not text:
             return None
-        message = f"📲 Shortcuts · {action}\n\n{text}"[:8000]
+        message = f"📲 Shortcuts · {action}\n\n{A.forward_safe_text(text)}"[:8000]
         runner = getattr(self, "gateway_runner", None)
         try:
             plat = Platform(target)
@@ -339,18 +353,9 @@ class ShortcutsAdapter(BasePlatformAdapter):
                 return None
         except Exception as e:
             logger.warning("[shortcuts] forward to %s via runner failed: %s", target, type(e).__name__)
-        if _CTX is None:
-            return None
-        try:
-            raw = await asyncio.to_thread(_CTX.dispatch_tool, "send_message",
-                                          {"action": "send", "target": target, "message": message})
-            result = json.loads(raw) if isinstance(raw, str) else raw
-            if isinstance(result, dict) and result.get("success"):
-                return target
-            logger.warning("[shortcuts] forward to %s not delivered: %s", target,
-                           str(result.get("error", ""))[:200] if isinstance(result, dict) else "?")
-        except Exception as e:
-            logger.warning("[shortcuts] forward to %s failed: %s", target, type(e).__name__)
+        # No send_message-tool fallback: that tool mirrors the text into the target chat's session as an
+        # ASSISTANT turn, so shared-content-derived text would enter the full-tool Telegram history.
+        logger.warning("[shortcuts] no live %s adapter/home channel; reply not forwarded", target)
         return None
 
     # -- inbound (phone -> agent) ---------------------------------------------------------------------
@@ -494,6 +499,9 @@ class ShortcutsAdapter(BasePlatformAdapter):
             action = forced_action or A.normalize_action(fields.get("action"))
             if action is None:
                 return self._reject(400, "unknown action; use one of: " + ", ".join(sorted(A.ACTIONS)), fmt)
+            if forced_action is None and action == "ask":
+                # /v1/share carries share-sheet content: never pass it unfenced as a plain question.
+                action = "auto"
             notify_default = action != "ask"
             prompt = None
 
