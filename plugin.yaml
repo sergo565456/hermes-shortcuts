@@ -11,7 +11,7 @@ description: >
   forwarded to your Telegram (or other) home channel. Off until SHORTCUTS_TOKEN
   is set and the plugin is enabled; listens on 127.0.0.1:8645 by default.
 requires_hermes: ">=0.23.1"
-author: "<MAINTAINER>"
+author: "sergo565456"
 platforms:
   - linux
   - macos

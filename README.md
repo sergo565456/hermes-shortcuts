@@ -56,7 +56,7 @@ needs **HMAC-signed** bodies, which iOS Shortcuts can't compute. `hermes-shortcu
 ## Install
 
 ```bash
-hermes plugins install <OWNER>/hermes-shortcuts
+hermes plugins install sergo565456/hermes-shortcuts
 hermes plugins enable hermes-shortcuts
 
 # 1) a strong random token (256 bit), stored through Hermes' own credential route (~/.hermes/.env, never config.yaml).
