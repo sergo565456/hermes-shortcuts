@@ -634,6 +634,12 @@ def register(ctx) -> None:
     global _CTX
     _CTX = ctx
     ctx.register_hook("pre_tool_call", _on_pre_tool_call)
+    register_cli = getattr(ctx, "register_cli_command", None)
+    if callable(register_cli):  # `hermes shortcuts pair`: QR code for the iPhone Setup shortcut
+        from . import pair
+        register_cli(name="shortcuts", help="Hermes Shortcuts: pair your iPhone (QR code)",
+                     setup_fn=pair.setup_parser, handler_fn=pair.cli_handler,
+                     description="Pair the iPhone 'Hermes Setup' shortcut with this server.")
     ctx.register_platform(
         name=PLATFORM, label="Shortcuts (iOS / Android)",
         adapter_factory=lambda cfg: ShortcutsAdapter(cfg),

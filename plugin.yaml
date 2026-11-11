@@ -6,7 +6,8 @@ description: >
   Token-authenticated HTTP entry for iOS Shortcuts / Android HTTP Shortcuts:
   Share Sheet (links, text, PDFs, screenshots, photos) with action presets,
   "Hey Siri, ask Hermes" with a synchronous spoken reply, photo-as-task and
-  optional event triggers. Replies come back in the HTTP response and are
+  optional event triggers. `hermes shortcuts pair` prints a QR code that pairs the
+  iPhone "Hermes Setup" shortcut in one scan. Replies come back in the HTTP response and are
   forwarded to your Telegram (or other) home channel. Off until SHORTCUTS_TOKEN
   is set and the plugin is enabled; listens on 127.0.0.1:8645 by default.
 requires_hermes: ">=0.23.1"
@@ -69,4 +70,8 @@ optional_env:
   - name: SHORTCUTS_CLIENT_IP_HEADER
     description: "Client IP header set by your local tunnel/proxy (e.g. CF-Connecting-IP); used only for the auth lockout, only from a loopback peer"
     prompt: "Client IP header (optional)"
+    password: false
+  - name: SHORTCUTS_PUBLIC_URL
+    description: "Public HTTPS base URL for `hermes shortcuts pair` (default: auto-detect a local cloudflared quick tunnel)"
+    prompt: "Public HTTPS URL (optional)"
     password: false
