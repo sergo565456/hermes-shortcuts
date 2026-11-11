@@ -37,8 +37,7 @@ Has the tunnel URL changed, or did you rotate the token? Run `hermes shortcuts p
 The other shortcuts don't need changes.
 
 > **Maintainers, one-time step:** Apple doesn't let you generate shortcuts as files, and an installable shortcut
-> only exists as an iCloud link from a real device. The three links above were built on an iPhone (recipes below,
-> step by step in Russian in [`docs/ios-build-guide-ru.md`](docs/ios-build-guide-ru.md)). If you rebuild one, open
+> only exists as an iCloud link from a real device. The three links above were built on an iPhone (recipes below). If you rebuild one, open
 > ⋯ → **Share** (⤴) → **Copy iCloud Link** and update its link above. These shortcuts contain **no URL or token**, because both live
 > in each user's `hermes.json`. That makes the links safe to publish. Before you share, open each shortcut and check
 > that no `Authorization` value contains a literal token.
@@ -211,80 +210,74 @@ folder of iCloud Drive (in the Files app: *iCloud Drive → Shortcuts*). Its con
 {"v": 1, "url": "https://your-host.example", "token": "…"}
 ```
 
-Action names below are the English iOS 17/18 names, with the Russian UI names in parentheses (*Команды* app).
-To add an action, tap **Add Action** / the search field at the bottom (*Поиск действий*) and type its name.
+Action names below are the English iOS 17/18 names.
+To add an action, tap **Add Action** / the search field at the bottom and type its name.
 To insert a variable into a field, tap the field and pick it from the bar above the keyboard, or long-press
-the field and choose **Select Variable** (*Выбрать переменную*).
+the field and choose **Select Variable**.
 
 ### 0. "Hermes Setup" (scan the pairing QR, once per phone)
 1. Shortcuts → **+** → rename it **Hermes Setup**.
-2. **Scan QR or Barcode** (*Сканировать QR-код или штрихкод*).
-3. **Get Dictionary from Input** (*Получить словарь из ввода*). Input: *QR/Barcode*, which is filled in automatically.
-4. **Get Dictionary Value** (*Получить значение из словаря*): *Value* for key `token` in *Dictionary*.
-5. **If** (*Если*) *Dictionary Value* **has any value** (*имеет любое значение*). Inside **Otherwise**
-   (*Иначе*): **Show Alert** (*Показать предупреждение*) "Not a Hermes pairing code", then **Stop This Shortcut**
-   (*Остановить эту команду*). Leave the *If* branch empty.
-6. After **End If**: **Save File** (*Сохранить файл*). Input: **Dictionary** (the result of step 3; tap the
+2. **Scan QR or Barcode**.
+3. **Get Dictionary from Input**. Input: *QR/Barcode*, which is filled in automatically.
+4. **Get Dictionary Value**: *Value* for key `token` in *Dictionary*.
+5. **If** *Dictionary Value* **has any value**. Inside **Otherwise**: **Show Alert** "Not a Hermes pairing code", then **Stop This Shortcut**. Leave the *If* branch empty.
+6. After **End If**: **Save File**. Input: **Dictionary** (the result of step 3; tap the
    input and pick *Dictionary*). Destination: **Shortcuts** (the default folder). Expand the action (›) and set:
-   **Ask Where to Save** off (*Спрашивать, куда сохранить*), **Subpath** `hermes.json` (*Подпуть*),
-   **Overwrite If File Exists** on (*Перезаписать, если файл существует*).
-7. **Show Alert** (*Показать предупреждение*): `Hermes paired`.
+   **Ask Where to Save** off, **Subpath** `hermes.json`,
+   **Overwrite If File Exists** on.
+7. **Show Alert**: `Hermes paired`.
 8. Run it. When asked, allow camera access, then scan the QR from `hermes shortcuts pair`. Then type `clear`
    in the server terminal.
 
 ### 1. "Ask Hermes" (Siri voice)
 Steps 1–6 are the **config block**. Every other Hermes shortcut starts with it.
-1. **Get File** (*Получить файл*). Tap the folder and choose **Shortcuts**. Turn **Show Document Picker** off
-   (*Показать окно выбора документов*), set **File Path** to `hermes.json` (*Путь к файлу*), and turn
-   **Error If Not Found** on (*Ошибка, если не найдено*).
-2. **Get Dictionary from Input** (*Получить словарь из ввода*). Input: *File*.
-3. **Get Dictionary Value** (*Получить значение из словаря*): *Value* for key `url` in *Dictionary*.
-4. **Set Variable** (*Задать переменную*) named `HermesURL` to *Dictionary Value*.
+1. **Get File**. Tap the folder and choose **Shortcuts**. Turn **Show Document Picker** off, set **File Path** to `hermes.json`, and turn
+   **Error If Not Found** on.
+2. **Get Dictionary from Input**. Input: *File*.
+3. **Get Dictionary Value**: *Value* for key `url` in *Dictionary*.
+4. **Set Variable** named `HermesURL` to *Dictionary Value*.
 5. **Get Dictionary Value**: *Value* for key `token` in **Dictionary** (tap the input and pick the *Dictionary*
    from step 2, not the previous value).
 6. **Set Variable** `HermesToken` to *Dictionary Value*.
-7. **Dictate Text** (*Диктовать текст*). Expand it and set **Stop Listening** to *After Pause* (*После паузы*).
-8. **Get Contents of URL** (*Получить содержимое URL*). In the URL field, insert the variable `HermesURL`, then
+7. **Dictate Text**. Expand it and set **Stop Listening** to *After Pause*.
+8. **Get Contents of URL**. In the URL field, insert the variable `HermesURL`, then
    type `/v1/ask?format=text` right after it, with no space. Expand it (›, *Show More*) and set:
-   * **Method** (*Метод*): `POST`
-   * **Headers** (*Заголовки*) → **Add new header** (*Добавить новый заголовок*): Key `Authorization`,
+   * **Method**: `POST`
+   * **Headers** → **Add new header**: Key `Authorization`,
      Value: type `Bearer` **plus one space**, then insert the variable `HermesToken`.
-   * **Request Body** (*Тело запроса*): **JSON** → **Add new field** (*Добавить новое поле*) → **Text**
-     (*Текст*): Key `text`, Value: *Dictated Text* (*Продиктованный текст*).
-9. **Speak Text** (*Произнести текст*). Input: *Contents of URL* (*Содержимое URL*).
+   * **Request Body**: **JSON** → **Add new field** → **Text**: Key `text`, Value: *Dictated Text*.
+9. **Speak Text**. Input: *Contents of URL*.
 10. Name it **Ask Hermes**. The name is the Siri phrase: *"Hey Siri, Ask Hermes"*. The first run asks for permission
-    to read `hermes.json` and to connect to your host. Choose **Always Allow** (*Всегда разрешать*).
+    to read `hermes.json` and to connect to your host. Choose **Always Allow**.
 
 Siri waits about 25 s (`SHORTCUTS_SYNC_TIMEOUT`). Longer jobs say "Working on it…" and finish in Telegram.
 
 ### 2. "Hermes" (Share Sheet: links and text PDFs, screenshots)
-1. New shortcut **Hermes**. Tap ⓘ (*Details*, *Сведения*) → turn on **Show in Share Sheet** (*Показывать в меню
-   «Поделиться»*). In the *Receive* block at the top, choose **URLs, Text, Safari web pages, Images, PDFs, Files**.
-   If there's no input: **Ask For** → *Text* (*Запросить*).
+1. New shortcut **Hermes**. Tap ⓘ (*Details*) → turn on **Show in Share Sheet**. In the *Receive* block at the top, choose **URLs, Text, Safari web pages, Images, PDFs, Files**.
+   If there's no input: **Ask For** → *Text*.
 2. The **config block** (steps 1–6 of *Ask Hermes*).
-3. **Choose from Menu** (*Выбрать из меню*), prompt `Hermes:`, with items `Summarize`, `Remember`, `Remind`, `Post`,
-   `Auto`. Inside each item add **Text** (*Текст*) with the lowercase action (`summarize`, `remember`, …).
-4. After **End Menu**: **Set Variable** `Action` to *Menu Result* (*Результат меню*).
-5. (Optional, for Remind) **Ask for Input** (*Запросить ввод*) `When?`, then **Set Variable** `When`.
+3. **Choose from Menu**, prompt `Hermes:`, with items `Summarize`, `Remember`, `Remind`, `Post`,
+   `Auto`. Inside each item add **Text** with the lowercase action (`summarize`, `remember`, …).
+4. After **End Menu**: **Set Variable** `Action` to *Menu Result*.
+5. (Optional, for Remind) **Ask for Input** `When?`, then **Set Variable** `When`.
 6. **Get Contents of URL**. URL: `HermesURL` + `/v1/share`. Method **POST**, header `Authorization` =
-   `Bearer ` + `HermesToken` (as in *Ask Hermes*). Request Body **Form** (*Форма*) with Text fields
-   `action` = `Action`, `text` = *Shortcut Input* (*Входные данные команды*), and optionally `when` = `When`.
-7. **Get Dictionary Value** `reply` from *Contents of URL* → **Show Result** (*Показать результат*).
+   `Bearer ` + `HermesToken` (as in *Ask Hermes*). Request Body **Form** with Text fields
+   `action` = `Action`, `text` = *Shortcut Input*, and optionally `when` = `When`.
+7. **Get Dictionary Value** `reply` from *Contents of URL* → **Show Result**.
 
 ### 3. "Hermes Photo" (photo as task)
 1. New shortcut **Hermes Photo** (add it to the Home Screen or the Action Button).
 2. The **config block**.
-3. **Take Photo** (*Сделать фото*), or **Select Photos** (*Выбрать фото*) → **Convert Image** (*Конвертировать
-   изображение*) to **JPEG**, quality ~0.7. HEIC is rejected, and JPEG keeps uploads small.
+3. **Take Photo**, or **Select Photos** → **Convert Image** to **JPEG**, quality ~0.7. HEIC is rejected, and JPEG keeps uploads small.
 4. **Choose from Menu**: `Receipt` / `Whiteboard` / `Document` / `Auto`. Inside each item add **Text** with the
    lowercase name, then after the menu **Set Variable** `Action` = *Menu Result*.
 5. **Get Contents of URL**. URL: `HermesURL` + `/v1/share`, **POST**, header `Authorization` = `Bearer ` +
-   `HermesToken`. Request Body **Form**: `action` (Text) = `Action`, `file` (**File**, *Файл*) = *Converted Image*.
+   `HermesToken`. Request Body **Form**: `action` (Text) = `Action`, `file` (**File**) = *Converted Image*.
 6. **Get Dictionary Value** `reply` → **Show Result**.
 
 ### 4. Event triggers (Automations)
-Shortcuts → **Automation** (*Автоматизация*) → **+** → *Arrive* (Home), *Alarm* (is stopped), *Charger* (is
-connected)… → **Run Immediately** (*Запускать сразу*). Add the **config block**, then **Get Contents of URL**:
+Shortcuts → **Automation** → **+** → *Arrive* (Home), *Alarm* (is stopped), *Charger* (is
+connected)… → **Run Immediately**. Add the **config block**, then **Get Contents of URL**:
 `HermesURL` + `/v1/event`, POST, header `Authorization` = `Bearer ` + `HermesToken`, JSON body `event` =
 `arrived_home` (or `alarm_off`, `charger_connected`, a custom name). The reply goes to Telegram.
 
@@ -405,6 +398,6 @@ hermes plugins doctor ./hermes-shortcuts --ci
 
 Layout: `plugin.yaml`, `__init__.py` (exports `register`), `adapter.py` (gateway platform adapter and aiohttp listener),
 `actions.py` (presets, prompt fencing, token and rate-limit helpers), `pair.py` (`hermes shortcuts pair`),
-`_qrcodegen.py` (vendored QR generator, MIT), `docs/ios-build-guide-ru.md` (maintainer build guide, Russian), `tests/`, `plugin-catalog/hermes-shortcuts.yaml` (draft catalog entry).
+`_qrcodegen.py` (vendored QR generator, MIT), `tests/`, `plugin-catalog/hermes-shortcuts.yaml` (draft catalog entry).
 
 License: MIT
