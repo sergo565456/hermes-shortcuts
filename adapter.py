@@ -6,16 +6,21 @@ calls :meth:`ShortcutsAdapter.send` with the reply; we hand that text back in th
 when asked (or when the sync wait times out), forward it to the user's home channel through the
 public ``send_message`` tool via ``ctx.dispatch_tool``.
 
-Security: bearer token (constant-time compare, 24+ chars), loopback bind unless
-SHORTCUTS_ALLOW_PUBLIC_BIND=true, body/upload size caps, sliding-window rate limit, auth-failure
-lockout, max concurrent requests, payload fenced as untrusted data, no gateway control/slash commands.
-Nothing about the token or request bodies is logged.
+Security: bearer token (hashed constant-time compare, 32+ chars, placeholders refused), loopback bind
+unless SHORTCUTS_ALLOW_PUBLIC_BIND=true, body/upload size caps and an hourly upload budget, sliding-window
+rate limit, per-client auth-failure lockout that never locks out the valid token, max concurrent
+requests, payload fenced as untrusted data with a per-request marker, no gateway control/slash commands,
+and a restricted per-action toolset (no terminal/file/code/browser) unless SHORTCUTS_TOOL_PROFILE=full.
+The plugin never logs the token or request bodies (Hermes core logs a short preview of each inbound
+message, like on every platform).
 """
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import json
 import logging
+import os
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -77,11 +82,11 @@ def _int(value, default: int, lo: int, hi: int) -> int:
 
 
 def check_requirements() -> bool:
-    return AIOHTTP_AVAILABLE and len(_secret("SHORTCUTS_TOKEN")) >= 24
+    return AIOHTTP_AVAILABLE and A.token_problem(_secret("SHORTCUTS_TOKEN")) is None
 
 
 def validate_config(config) -> bool:
-    return len(_secret("SHORTCUTS_TOKEN")) >= 24
+    return A.token_problem(_secret("SHORTCUTS_TOKEN")) is None
 
 
 def is_connected(config) -> bool:
@@ -89,7 +94,7 @@ def is_connected(config) -> bool:
 
 
 def _env_enablement() -> Optional[dict]:
-    if len(_secret("SHORTCUTS_TOKEN")) < 24:
+    if A.token_problem(_secret("SHORTCUTS_TOKEN")) is not None:
         return None
     # The "phone" home channel lets cron jobs deliver=shortcuts; such messages are forwarded to
     # SHORTCUTS_NOTIFY_TARGET (Telegram by default) because a phone has no push socket here.
@@ -134,6 +139,7 @@ class _Pending:
     future: asyncio.Future
     chunks: list = field(default_factory=list)
     timed_out: bool = False
+    forward_on_timeout: bool = True
     completed_empty: bool = False
     started: float = field(default_factory=time.monotonic)
 
@@ -151,8 +157,21 @@ class ShortcutsAdapter(BasePlatformAdapter):
         self._notify_target = str(_setting(extra, "notify_target", "SHORTCUTS_NOTIFY_TARGET", "telegram"))
         self._max_upload = _int(_setting(extra, "max_upload_mb", "SHORTCUTS_MAX_UPLOAD_MB", 15), 15, 1, 50) * 1024 * 1024
         self._limiter = A.SlidingWindow(_int(_setting(extra, "rate_limit", "SHORTCUTS_RATE_LIMIT", 20), 20, 1, 600))
-        self._auth_fail = A.SlidingWindow(10, 300.0)
+        self._auth_fail = A.FailureTracker(per_client=10, window=300.0, global_limit=300)
+        self._upload_budget = A.ByteBudget(_int(_setting(extra, "max_upload_mb_per_hour", "SHORTCUTS_MAX_UPLOAD_MB_PER_HOUR",
+                                                         200), 200, 1, 10000) * 1024 * 1024)
         self._max_concurrent = _int(extra.get("max_concurrent", 3), 3, 1, 16)
+        self._inflight = 0
+        profile = str(_setting(extra, "tool_profile", "SHORTCUTS_TOOL_PROFILE", "safe")).strip().lower()
+        if profile not in A.TOOL_PROFILES:
+            logger.warning("[shortcuts] unknown SHORTCUTS_TOOL_PROFILE %r; using 'safe'", profile)
+            profile = "safe"
+        self._tool_profile = profile
+        self._toolset_overrides = extra.get("toolsets") if isinstance(extra.get("toolsets"), dict) else None
+        # Client identity for the auth-failure lockout. Proxy headers are honoured only when this is
+        # set AND the TCP peer is loopback (i.e. the local tunnel/proxy), so they cannot be spoofed
+        # from outside. Typical value behind cloudflared: CF-Connecting-IP.
+        self._client_ip_header = str(_setting(extra, "client_ip_header", "SHORTCUTS_CLIENT_IP_HEADER", "")).strip()
         events = dict(A.DEFAULT_EVENTS)
         if isinstance(extra.get("events"), dict):
             events.update({str(k): str(v) for k, v in extra["events"].items() if v})
@@ -166,8 +185,11 @@ class ShortcutsAdapter(BasePlatformAdapter):
         if not AIOHTTP_AVAILABLE:
             logger.warning("[shortcuts] aiohttp not available")
             return False
-        if len(_secret("SHORTCUTS_TOKEN")) < 24:
-            logger.warning("[shortcuts] SHORTCUTS_TOKEN missing or shorter than 24 chars; not listening")
+        problem = A.token_problem(_secret("SHORTCUTS_TOKEN"))
+        if problem is not None:
+            logger.warning("[shortcuts] SHORTCUTS_TOKEN is %s; not listening. Generate one with: "
+                           "openssl rand -hex 32", problem)
+            self._set_fatal_error("shortcuts_weak_token", f"SHORTCUTS_TOKEN is {problem}", retryable=False)
             return False
         if not A.is_loopback(self._host) and not self._allow_public:
             logger.error("[shortcuts] refusing to bind %s: set SHORTCUTS_ALLOW_PUBLIC_BIND=true to opt in", self._host)
@@ -188,7 +210,7 @@ class ShortcutsAdapter(BasePlatformAdapter):
             return False
         self._mark_connected()
         self._wire_plugin_handlers(None)
-        logger.info("[shortcuts] listening on http://%s:%d", self._host, self._port)
+        logger.info("[shortcuts] listening on http://%s:%d (tool profile: %s)", self._host, self._port, self._tool_profile)
         return True
 
     async def _cleanup_runner(self):
@@ -212,6 +234,13 @@ class ShortcutsAdapter(BasePlatformAdapter):
 
     async def send_typing(self, chat_id: str, metadata=None) -> None:
         return None
+
+    def toolsets_for_source(self, source) -> Optional[list[str]]:
+        """Restrict each shortcuts turn to the toolsets its action needs (see actions.SAFE_TOOLSETS).
+        Unknown chats (e.g. a cron job delivering here) get the most restricted shared set."""
+        pending = self._pending.get(str(getattr(source, "chat_id", "") or ""))
+        action = pending.action if pending is not None else "_shared"
+        return A.toolsets_for_action(action, self._tool_profile, self._toolset_overrides)
 
     # -- outbound (agent -> phone) --------------------------------------------------------------------
 
@@ -248,7 +277,7 @@ class ShortcutsAdapter(BasePlatformAdapter):
             reply = "(no reply)" if outcome == ProcessingOutcome.SUCCESS else "Sorry, that request failed."
         if not pending.future.done():
             pending.future.set_result(reply)
-        if pending.notify or pending.timed_out:
+        if pending.notify or (pending.timed_out and pending.forward_on_timeout):
             await self._forward(pending.action, reply)
 
     def _sweep(self) -> None:
@@ -303,24 +332,39 @@ class ShortcutsAdapter(BasePlatformAdapter):
     # -- inbound (phone -> agent) ---------------------------------------------------------------------
 
     async def _health(self, request):
-        return web.json_response({"ok": True, "platform": PLATFORM})
+        return web.json_response({"ok": True})
 
     def _reject(self, status: int, error: str, fmt: str = "json"):
         if fmt == "text":
             return web.Response(status=status, text=error)
         return web.json_response({"ok": False, "error": error}, status=status)
 
+    def _client_key(self, request) -> str:
+        peer = (request.remote or "").strip()
+        if self._client_ip_header and A.is_loopback(peer):
+            fwd = (request.headers.get(self._client_ip_header, "") or "").split(",")[0].strip()
+            try:
+                return str(ipaddress.ip_address(fwd))
+            except ValueError:
+                pass
+        return peer or "unknown"
+
     async def _gate(self, request) -> Optional[Any]:
-        if not self._auth_fail.allow_peek():
-            return self._reject(429, "too many failed auth attempts; try later")
+        """Auth first: the valid token is never locked out. Then rate and concurrency limits.
+        On success one in-flight slot is reserved; the caller must release it."""
+        client = self._client_key(request)
         if not A.token_ok(A.extract_bearer(request.headers), _secret("SHORTCUTS_TOKEN")):
-            self._auth_fail.allow()
+            if self._auth_fail.locked(client):
+                return self._reject(429, "too many failed auth attempts; try later")
+            self._auth_fail.record(client)
             return self._reject(401, "unauthorized")
         if not self._limiter.allow():
             return self._reject(429, "rate limit exceeded")
         self._sweep()
-        if sum(1 for p in self._pending.values() if not p.future.done()) >= self._max_concurrent:
+        busy = sum(1 for p in self._pending.values() if not p.future.done())
+        if busy + self._inflight >= self._max_concurrent:
             return self._reject(429, "too many requests in flight")
+        self._inflight += 1
         return None
 
     async def _read_payload(self, request) -> tuple[dict, list[tuple[bytes, str, str]]]:
@@ -376,14 +420,34 @@ class ShortcutsAdapter(BasePlatformAdapter):
         denied = await self._gate(request)
         if denied is not None:
             return denied
+        cached: list[str] = []
+        try:
+            response = await self._handle_authorized(request, forced_action, fmt, cached)
+        except Exception as e:  # never leak internals to the client; log the type only
+            logger.warning("[shortcuts] request failed: %s", type(e).__name__)
+            response = self._reject(500, "internal error", fmt)
+        finally:
+            self._inflight = max(0, self._inflight - 1)
+        if response.status >= 400:
+            for path in cached:  # files cached for a request that was then rejected
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
+        return response
+
+    async def _handle_authorized(self, request, forced_action: Optional[str], fmt: str, cached: list):
         try:
             fields, files = await self._read_payload(request)
         except OverflowError:
             return self._reject(413, "upload too large", fmt)
         except web.HTTPRequestEntityTooLarge:
             return self._reject(413, "upload too large", fmt)
-        except (ValueError, UnicodeError, json.JSONDecodeError) as e:
-            return self._reject(400, str(e)[:200], fmt)
+        except json.JSONDecodeError:
+            return self._reject(400, "malformed JSON", fmt)
+        except (ValueError, UnicodeError) as e:
+            return self._reject(400, str(e)[:200] if isinstance(e, ValueError) and str(e).startswith(
+                ("JSON body", "at most", "field ", "unsupported content")) else "bad request", fmt)
         fmt = "text" if str(fields.get("format", "")).lower() == "text" or fmt == "text" else "json"
 
         text = A.clean_text(fields.get("text") or fields.get("input") or fields.get("query"))
@@ -396,7 +460,7 @@ class ShortcutsAdapter(BasePlatformAdapter):
         note = A.clean_text(fields.get("note"), A.MAX_FIELD_CHARS)
 
         if forced_action == "event":
-            name = A.clean_text(fields.get("event") or text, 64)
+            name = A.event_key(A.clean_text(fields.get("event") or text, 64))
             prompt = A.event_prompt(name, self._events)
             if prompt is None:
                 return self._reject(404, "unknown event", fmt)
@@ -408,6 +472,8 @@ class ShortcutsAdapter(BasePlatformAdapter):
             notify_default = action != "ask"
             prompt = None
 
+        if files and not self._upload_budget.take(sum(len(b) for b, _, _ in files)):
+            return self._reject(429, "hourly upload budget exceeded", fmt)
         media_urls, media_types, kinds = [], [], []
         mtype = MessageType.TEXT
         for blob, filename, declared in files:
@@ -420,9 +486,13 @@ class ShortcutsAdapter(BasePlatformAdapter):
                 elif kind == "heic":
                     return self._reject(415, "HEIC not supported: add 'Convert Image' to JPEG in your Shortcut", fmt)
                 else:
-                    path, mtype = cache_document_from_bytes(blob, filename or f"upload{ext}"), MessageType.DOCUMENT
-            except ValueError as e:
-                return self._reject(400, f"could not accept file: {str(e)[:120]}", fmt)
+                    safe_name = A.safe_filename(filename, ext)
+                    path, mtype = cache_document_from_bytes(blob, safe_name), MessageType.DOCUMENT
+            except ValueError:
+                return self._reject(400, "could not accept file (type/content mismatch or bad name)", fmt)
+            except OSError:
+                return self._reject(400, "could not store file", fmt)
+            cached.append(path)
             media_urls.append(path)
             media_types.append(mime)
             kinds.append(kind)
@@ -437,13 +507,16 @@ class ShortcutsAdapter(BasePlatformAdapter):
 
         notify_raw = str(fields.get("notify", "auto")).lower()
         notify = notify_default if notify_raw == "auto" else A.parse_bool(notify_raw)
+        # notify=false is honoured even when the sync wait times out (the reply is then dropped).
+        forward_on_timeout = notify_raw == "auto" or notify
         sync = A.parse_bool(fields.get("sync"), True)
         timeout = _int(fields.get("timeout"), self._sync_timeout, 3, 120)
 
         chat_id = "sc-" + uuid.uuid4().hex[:16]
         msg_id = uuid.uuid4().hex[:12]
         loop = asyncio.get_running_loop()
-        pending = _Pending(action=action, notify=notify, future=loop.create_future())
+        pending = _Pending(action=action, notify=notify, future=loop.create_future(),
+                           forward_on_timeout=forward_on_timeout)
         self._pending[chat_id] = pending
         source = self.build_source(chat_id=chat_id, chat_name="Shortcuts", chat_type="dm",
                                    user_id=OWNER, user_name="Phone (Shortcuts)", message_id=msg_id)
@@ -460,7 +533,7 @@ class ShortcutsAdapter(BasePlatformAdapter):
 
         if not sync:
             pending.timed_out = True
-            return self._ok(fmt, "accepted", action, "Got it. I'll send the result to Telegram.", None)
+            return self._ok(fmt, "accepted", action, "Got it. I'll send the result to Telegram.", None, status=202)
         try:
             reply = await asyncio.wait_for(asyncio.shield(pending.future), timeout=timeout)
         except asyncio.TimeoutError:

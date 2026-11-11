@@ -33,9 +33,10 @@ def test_remind_has_default_when():
 
 
 def test_token_ok():
-    tok = "x" * 32
+    tok = "k3Jd9xQ2mZ8vT4bW7nR1pL6sY0cF5hG2"
     assert A.token_ok(tok, tok)
     assert not A.token_ok("y" * 32, tok)
+    assert not A.token_ok("x" * 40, "x" * 40)  # repetitive tokens are refused
     assert not A.token_ok("short", "short")
     assert not A.token_ok("", tok)
 

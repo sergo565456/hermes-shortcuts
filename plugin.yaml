@@ -16,8 +16,8 @@ platforms:
   - macos
 requires_env:
   - name: SHORTCUTS_TOKEN
-    description: "Bearer token your phone sends (generate: python3 -c 'import secrets;print(secrets.token_urlsafe(32))')"
-    prompt: "Shortcuts bearer token (32+ chars)"
+    description: "Bearer token your phone sends; 32+ random chars, placeholders refused (generate: openssl rand -hex 32)"
+    prompt: "Shortcuts bearer token (generate with: openssl rand -hex 32)"
     password: true
 optional_env:
   - name: SHORTCUTS_ALLOWED_USERS
@@ -51,4 +51,16 @@ optional_env:
   - name: SHORTCUTS_MAX_UPLOAD_MB
     description: "Max upload size in MB (default 15)"
     prompt: "Max upload MB"
+    password: false
+  - name: SHORTCUTS_MAX_UPLOAD_MB_PER_HOUR
+    description: "Total upload budget per hour in MB (default 200)"
+    prompt: "Upload MB per hour"
+    password: false
+  - name: SHORTCUTS_TOOL_PROFILE
+    description: "safe (default: per-action toolsets, no terminal/file/code/browser) or full (platform default toolset)"
+    prompt: "Tool profile (safe/full)"
+    password: false
+  - name: SHORTCUTS_CLIENT_IP_HEADER
+    description: "Client IP header set by your local tunnel/proxy (e.g. CF-Connecting-IP); used only for the auth lockout, only from a loopback peer"
+    prompt: "Client IP header (optional)"
     password: false
