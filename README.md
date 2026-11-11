@@ -22,8 +22,8 @@ endpoint that your phone can call:
 2. **iPhone:** install **[Hermes Setup](https://www.icloud.com/shortcuts/4846c3cb4ee14f00a7d966b88465d3c9)**, run it, and scan the QR code. It saves the
    pairing to *iCloud Drive → Shortcuts → `hermes.json`* and says "Hermes paired".
 3. **iPhone:** install the shortcuts you want. They need no editing because they read `hermes.json`:
-   **[Ask Hermes](https://www.icloud.com/shortcuts/84873f84e6d7400d9fc0a6f3b8c011ea)** (Siri), **[Hermes](https://www.icloud.com/shortcuts/f6cb4e1fb6ba40788a0d4555925d9b64)** (Share Sheet: links, text,
-   photos and files from any app).
+   **[Ask Hermes](https://www.icloud.com/shortcuts/84873f84e6d7400d9fc0a6f3b8c011ea)** (Siri), **[Hermes](https://www.icloud.com/shortcuts/f6cb4e1fb6ba40788a0d4555925d9b64)** (Share Sheet: links and text
+   from any app). *Hermes Photo* (recipe below) is optional.
 
 Then say *"Hey Siri, Ask Hermes"*, or share a link and choose **Hermes**.
 
@@ -257,7 +257,7 @@ Steps 1–6 are the **config block**. Every other Hermes shortcut starts with it
 
 Siri waits about 25 s (`SHORTCUTS_SYNC_TIMEOUT`). Longer jobs say "Working on it…" and finish in Telegram.
 
-### 2. "Hermes" (Share Sheet: links, text, PDFs, screenshots)
+### 2. "Hermes" (Share Sheet: links and text PDFs, screenshots)
 1. New shortcut **Hermes**. Tap ⓘ (*Details*, *Сведения*) → turn on **Show in Share Sheet** (*Показывать в меню
    «Поделиться»*). In the *Receive* block at the top, choose **URLs, Text, Safari web pages, Images, PDFs, Files**.
    If there's no input: **Ask For** → *Text* (*Запросить*).
