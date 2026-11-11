@@ -22,8 +22,8 @@ endpoint that your phone can call:
 2. **iPhone:** install **[Hermes Setup](https://www.icloud.com/shortcuts/4846c3cb4ee14f00a7d966b88465d3c9)**, run it, and scan the QR code. It saves the
    pairing to *iCloud Drive → Shortcuts → `hermes.json`* and says "Hermes paired".
 3. **iPhone:** install the shortcuts you want. They need no editing because they read `hermes.json`:
-   **[Ask Hermes](https://www.icloud.com/shortcuts/84873f84e6d7400d9fc0a6f3b8c011ea)** (Siri), **[Hermes](ICLOUD_LINK_SHARE)** (Share Sheet),
-   **[Hermes Photo](ICLOUD_LINK_PHOTO)**.
+   **[Ask Hermes](https://www.icloud.com/shortcuts/84873f84e6d7400d9fc0a6f3b8c011ea)** (Siri), **[Hermes](https://www.icloud.com/shortcuts/f6cb4e1fb6ba40788a0d4555925d9b64)** (Share Sheet: links, text,
+   photos and files from any app).
 
 Then say *"Hey Siri, Ask Hermes"*, or share a link and choose **Hermes**.
 
@@ -37,10 +37,9 @@ Has the tunnel URL changed, or did you rotate the token? Run `hermes shortcuts p
 The other shortcuts don't need changes.
 
 > **Maintainers, one-time step:** Apple doesn't let you generate shortcuts as files, and an installable shortcut
-> only exists as an iCloud link from a real device. Build the four shortcuts once on an iPhone (recipes below,
-> step by step in Russian in [`docs/ios-build-guide-ru.md`](docs/ios-build-guide-ru.md)). For each one, open
-> ⋯ → **Share** (⤴) → **Copy iCloud Link** and replace `ICLOUD_LINK_SETUP`, `ICLOUD_LINK_ASK`,
-> `ICLOUD_LINK_SHARE` and `ICLOUD_LINK_PHOTO` above. These shortcuts contain **no URL or token**, because both live
+> only exists as an iCloud link from a real device. The three links above were built on an iPhone (recipes below,
+> step by step in Russian in [`docs/ios-build-guide-ru.md`](docs/ios-build-guide-ru.md)). If you rebuild one, open
+> ⋯ → **Share** (⤴) → **Copy iCloud Link** and update its link above. These shortcuts contain **no URL or token**, because both live
 > in each user's `hermes.json`. That makes the links safe to publish. Before you share, open each shortcut and check
 > that no `Authorization` value contains a literal token.
 
