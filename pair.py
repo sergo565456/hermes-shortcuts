@@ -45,19 +45,35 @@ class PairError(Exception):
 
 # -- token / URL --------------------------------------------------------------------------------------
 
+def _standalone_secret(name: str) -> Optional[str]:
+    """Outside the plugin package: Hermes' secret scope when importable, else None. Never os.environ."""
+    try:
+        from agent.secret_scope import get_secret
+    except Exception:
+        return None
+    try:
+        val = get_secret(name, None)
+    except Exception:
+        return None
+    return None if val is None else str(val).strip()
+
+
 def read_token() -> str:
-    """The configured SHORTCUTS_TOKEN, through the same secret route the adapter uses."""
+    """The configured SHORTCUTS_TOKEN, through the same secret route the adapter uses
+    (agent.secret_scope.get_secret; never os.environ or .env files). Run as a plain script with a Python
+    that cannot import Hermes, the token is asked for on the terminal (not echoed)."""
     try:
         from .adapter import _secret  # type: ignore[attr-defined]
-    except Exception:  # standalone script: Hermes' secret scope if importable, else the process env
-        def _secret(name: str, default: str = "") -> str:
-            try:
-                from agent.secret_scope import get_secret
-                val = get_secret(name, None)
-            except Exception:
-                val = os.environ.get(name)
-            return default if val is None else str(val).strip()
-    return _secret("SHORTCUTS_TOKEN", "")
+        return _secret("SHORTCUTS_TOKEN", "")
+    except ImportError:
+        pass
+    val = _standalone_secret("SHORTCUTS_TOKEN")
+    if val:
+        return val
+    if sys.stdin.isatty():
+        import getpass
+        return getpass.getpass("SHORTCUTS_TOKEN (input hidden): ").strip()
+    return ""
 
 
 def normalize_url(raw: str, allow_http: bool = False) -> str:
@@ -121,13 +137,11 @@ def resolve_url(cli_url: Optional[str], allow_http: bool = False, detect=detect_
     """(base URL, where it came from): --url, then SHORTCUTS_PUBLIC_URL, then a local quick tunnel."""
     if cli_url:
         return normalize_url(cli_url, allow_http), "--url"
-    env_url = os.environ.get("SHORTCUTS_PUBLIC_URL", "").strip()
-    if not env_url:
-        try:
-            from .adapter import _secret  # type: ignore[attr-defined]
-            env_url = _secret("SHORTCUTS_PUBLIC_URL", "")
-        except Exception:
-            pass
+    try:  # declared optional_env: read through Hermes' secret scope (profile-aware)
+        from .adapter import _secret  # type: ignore[attr-defined]
+        env_url = _secret("SHORTCUTS_PUBLIC_URL", "")
+    except ImportError:  # plain script: Hermes' scope if importable, else the process environment (not a secret)
+        env_url = _standalone_secret("SHORTCUTS_PUBLIC_URL") or os.environ.get("SHORTCUTS_PUBLIC_URL", "").strip()
     if env_url:
         return normalize_url(env_url, allow_http), "SHORTCUTS_PUBLIC_URL"
     found = detect()

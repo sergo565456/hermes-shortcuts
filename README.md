@@ -30,8 +30,8 @@ Then say *"Hey Siri, Ask Hermes"*, or share a link and choose **Hermes**.
 `hermes shortcuts pair` options: `--url https://your-host` (else `SHORTCUTS_PUBLIC_URL`, else the URL of a
 cloudflared quick tunnel running on this machine), `--invert` (light terminal background), `--png FILE` (saves a
 0600 PNG; delete it after pairing), `--show-token` (also prints the token as text; off by default). If your Hermes
-build has no plugin CLI commands, run `python3 ~/.hermes/plugins/hermes-shortcuts/pair.py pair` with
-`SHORTCUTS_TOKEN` in the environment instead.
+build has no plugin CLI commands, run `python3 ~/.hermes/plugins/hermes-shortcuts/pair.py pair` instead (with
+Hermes' Python it reads the token through Hermes' secret scope; otherwise it asks for it, hidden).
 
 Has the tunnel URL changed, or did you rotate the token? Run `hermes shortcuts pair` again and re-run *Hermes Setup*.
 The other shortcuts don't need changes.

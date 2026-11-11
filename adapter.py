@@ -607,8 +607,8 @@ def _session_value(name: str) -> str:
     try:
         from gateway.session_context import get_session_env
         return str(get_session_env(name, "") or "")
-    except Exception:
-        return str(os.environ.get(name, "") or "")
+    except Exception:  # no session context API: not a shortcuts session we can identify
+        return ""
 
 
 _DENY = {"action": "block", "message": "Tool blocked: hermes-shortcuts could not verify this phone request's "

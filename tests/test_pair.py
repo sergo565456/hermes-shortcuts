@@ -82,11 +82,13 @@ def test_detect_ignores_bad_answers(body):
 
 
 def test_resolve_order(monkeypatch):
-    monkeypatch.setenv("SHORTCUTS_PUBLIC_URL", "https://env.example.com/")
+    monkeypatch.delenv("SHORTCUTS_PUBLIC_URL", raising=False)
+    monkeypatch.setitem(SECRETS, "SHORTCUTS_PUBLIC_URL", "https://env.example.com/")
     det = lambda: "https://q.trycloudflare.com"
     assert pair.resolve_url("https://cli.example.com", detect=det)[0] == "https://cli.example.com"
     assert pair.resolve_url(None, detect=det)[0] == "https://env.example.com"
-    monkeypatch.delenv("SHORTCUTS_PUBLIC_URL")
+    monkeypatch.delitem(SECRETS, "SHORTCUTS_PUBLIC_URL")
+    monkeypatch.setenv("SHORTCUTS_PUBLIC_URL", "https://ignored.example.com")  # profile-unaware env is not read
     assert pair.resolve_url(None, detect=det) [0] == "https://q.trycloudflare.com"
     with pytest.raises(pair.PairError):
         pair.resolve_url(None, detect=lambda: None)
@@ -188,3 +190,11 @@ def test_register_without_cli_support():
         def register_hook(self, *a, **k): pass
         def register_platform(self, *a, **k): pass
     P.register(Ctx())
+
+
+def test_read_token_ignores_process_env(monkeypatch):
+    monkeypatch.delitem(SECRETS, "SHORTCUTS_TOKEN", raising=False)
+    monkeypatch.setenv("SHORTCUTS_TOKEN", TOKEN)  # only Hermes' secret scope counts
+    assert pair.read_token() == ""
+    monkeypatch.setitem(SECRETS, "SHORTCUTS_TOKEN", TOKEN)
+    assert pair.read_token() == TOKEN

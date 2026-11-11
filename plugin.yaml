@@ -44,7 +44,7 @@ optional_env:
     prompt: "Sync timeout seconds"
     password: false
   - name: SHORTCUTS_NOTIFY_TARGET
-    description: "send_message target for replies (default: telegram = Telegram home channel; 'none' disables)"
+    description: "Platform whose home channel gets forwarded replies (default: telegram; 'none' disables)"
     prompt: "Notify target"
     password: false
   - name: SHORTCUTS_RATE_LIMIT
