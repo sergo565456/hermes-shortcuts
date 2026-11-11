@@ -19,10 +19,10 @@ endpoint that your phone can call:
    hermes shortcuts pair
    ```
    A QR code appears in the terminal. It holds your server URL and your token, so don't screenshot or share it.
-2. **iPhone:** install **[Hermes Setup](ICLOUD_LINK_SETUP)**, run it, and scan the QR code. It saves the
+2. **iPhone:** install **[Hermes Setup](https://www.icloud.com/shortcuts/4846c3cb4ee14f00a7d966b88465d3c9)**, run it, and scan the QR code. It saves the
    pairing to *iCloud Drive → Shortcuts → `hermes.json`* and says "Hermes paired".
 3. **iPhone:** install the shortcuts you want. They need no editing because they read `hermes.json`:
-   **[Ask Hermes](ICLOUD_LINK_ASK)** (Siri), **[Hermes](ICLOUD_LINK_SHARE)** (Share Sheet),
+   **[Ask Hermes](https://www.icloud.com/shortcuts/84873f84e6d7400d9fc0a6f3b8c011ea)** (Siri), **[Hermes](ICLOUD_LINK_SHARE)** (Share Sheet),
    **[Hermes Photo](ICLOUD_LINK_PHOTO)**.
 
 Then say *"Hey Siri, Ask Hermes"*, or share a link and choose **Hermes**.
