@@ -1,0 +1,54 @@
+name: hermes-shortcuts
+label: Hermes Shortcuts
+kind: platform
+version: 0.1.0
+description: >
+  Token-authenticated HTTP entry for iOS Shortcuts / Android HTTP Shortcuts:
+  Share Sheet (links, text, PDFs, screenshots, photos) with action presets,
+  "Hey Siri, ask Hermes" with a synchronous spoken reply, photo-as-task and
+  optional event triggers. Replies come back in the HTTP response and are
+  forwarded to your Telegram (or other) home channel. Off until SHORTCUTS_TOKEN
+  is set and the plugin is enabled; listens on 127.0.0.1:8645 by default.
+requires_hermes: ">=0.23.1"
+author: "<MAINTAINER>"
+platforms:
+  - linux
+  - macos
+requires_env:
+  - name: SHORTCUTS_TOKEN
+    description: "Bearer token your phone sends (generate: python3 -c 'import secrets;print(secrets.token_urlsafe(32))')"
+    prompt: "Shortcuts bearer token (32+ chars)"
+    password: true
+optional_env:
+  - name: SHORTCUTS_ALLOWED_USERS
+    description: "Gateway allowlist for this platform; set to: owner"
+    prompt: "Allowed users (use: owner)"
+    password: false
+  - name: SHORTCUTS_HOST
+    description: "Bind address (default 127.0.0.1). Non-loopback needs SHORTCUTS_ALLOW_PUBLIC_BIND=true"
+    prompt: "Bind host"
+    password: false
+  - name: SHORTCUTS_PORT
+    description: "Listen port (default 8645)"
+    prompt: "Listen port"
+    password: false
+  - name: SHORTCUTS_ALLOW_PUBLIC_BIND
+    description: "Explicit opt-in to bind a non-loopback address (true/false, default false)"
+    prompt: "Allow public bind? (true/false)"
+    password: false
+  - name: SHORTCUTS_SYNC_TIMEOUT
+    description: "Seconds to wait for a synchronous reply before answering 'working on it' (default 25)"
+    prompt: "Sync timeout seconds"
+    password: false
+  - name: SHORTCUTS_NOTIFY_TARGET
+    description: "send_message target for replies (default: telegram = Telegram home channel; 'none' disables)"
+    prompt: "Notify target"
+    password: false
+  - name: SHORTCUTS_RATE_LIMIT
+    description: "Max accepted requests per minute (default 20)"
+    prompt: "Rate limit per minute"
+    password: false
+  - name: SHORTCUTS_MAX_UPLOAD_MB
+    description: "Max upload size in MB (default 15)"
+    prompt: "Max upload MB"
+    password: false

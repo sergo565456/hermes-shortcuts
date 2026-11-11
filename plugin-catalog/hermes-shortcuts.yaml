@@ -1,0 +1,23 @@
+name: hermes-shortcuts
+title: "Hermes Shortcuts (Share Sheet, Siri, Photo)"
+repo: https://github.com/<OWNER>/hermes-shortcuts
+sha: 0000000000000000000000000000000000000000  # TODO: full 40-char commit SHA of the reviewed release
+version: "0.1.0"
+description: "Share to Hermes from any iPhone or Android app, ask Hermes with Siri and hear the answer, or photograph a receipt, whiteboard or document as a task. iOS Shortcuts and Android HTTP Shortcuts call one token-protected endpoint; replies return in the HTTP response and are forwarded to your Telegram home channel. Disclosure: off until SHORTCUTS_TOKEN is set and the plugin is enabled; then the gateway runs an HTTP listener on 127.0.0.1:8645 (non-loopback bind needs SHORTCUTS_ALLOW_PUBLIC_BIND=true). A single bearer token is the only authentication, and requests run normal agent turns with the gateway's tools; approvals are not bypassed. Uploads are cached in Hermes' media cache; replies are sent to the configured platform's home channel."
+maintainer: <OWNER>
+tier: community
+category: platform
+docs_url: https://github.com/<OWNER>/hermes-shortcuts/blob/<SHA>/README.md
+requires_hermes: ">=0.23.1"
+readme: true
+platforms: [linux, macos]
+onboarding: false
+known_issues:
+  - "Needs an HTTPS tunnel or reverse proxy (Cloudflare Tunnel, Tailscale, Caddy) for the phone to reach the loopback listener."
+  - "No approval buttons on this surface: commands that need approval fail or time out; use Telegram for those."
+  - "HEIC photos are rejected; the recipes convert to JPEG first."
+capabilities:
+  provides_tools: []
+  provides_hooks: []
+  provides_middleware: []
+  requires_env: [SHORTCUTS_TOKEN]
