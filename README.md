@@ -44,8 +44,10 @@ Check it from the server:
 ```bash
 curl -s http://127.0.0.1:8645/health
 T="$(grep ^SHORTCUTS_TOKEN= ~/.hermes/.env | cut -d= -f2-)"   # stays in your shell, not in history or logs
-curl -s -H "Authorization: Bearer $T" -d "text=What's 2+2?" http://127.0.0.1:8645/v1/ask
+printf 'header = "Authorization: Bearer %s"\n' "$T" | curl -s -K - -d "text=What's 2+2?" http://127.0.0.1:8645/v1/ask
+unset T
 ```
+(`-K -` reads the header from stdin, so the token never appears in `ps` output for other local users.)
 
 To read your token later (to paste it into the Shortcut), run on the server:
 `grep ^SHORTCUTS_TOKEN= ~/.hermes/.env | cut -d= -f2-`. Don't paste it into chats, issues or screenshots.
@@ -70,8 +72,13 @@ Shortcut at that URL:
   make sure the proxy's access log does **not** record the `Authorization` header.
 
 The plugin never trusts `X-Forwarded-For` for anything. If you set `SHORTCUTS_CLIENT_IP_HEADER` (e.g.
-`CF-Connecting-IP`), that header is used only to key the auth-failure lockout per client, and only when the TCP peer
-is loopback (your local tunnel/proxy), so it cannot be spoofed from outside.
+`CF-Connecting-IP`), that header is used only to key the auth-failure lockout per client (IPv6 per /64), and only
+when the TCP peer is loopback (your local tunnel/proxy). Cloudflare refuses client-supplied `CF-Connecting-IP`, but
+**any local process that can reach 127.0.0.1** can set it, including traffic from a VPN/proxy server on the same
+host (e.g. Xray/V2Ray/Hysteria with no rule blocking private destinations) and other local users. The lockout is a
+convenience, not the security boundary: the 256-bit token is. A global cap (300 failed attempts / 5 min) still
+applies to everyone, and the valid token is never locked out. If you run a proxy/VPN on the same server, block
+private/loopback destinations in it.
 
 Binding a non-loopback address directly requires `SHORTCUTS_HOST=0.0.0.0` **and**
 `SHORTCUTS_ALLOW_PUBLIC_BIND=true`. Plain HTTP over the internet would expose your token, so use a tunnel instead.
@@ -83,7 +90,7 @@ Optional YAML overrides go in `config.yaml → gateway.platforms.shortcuts.extra
 
 | Env | Default | Meaning |
 |---|---|---|
-| `SHORTCUTS_TOKEN` | — (required, ≥24 chars) | Bearer token. Without it the plugin doesn't listen |
+| `SHORTCUTS_TOKEN` | — (required, ≥32 random chars) | Bearer token. Without it the plugin doesn't listen |
 | `SHORTCUTS_ALLOWED_USERS` | — | Set to `owner` (gateway allowlist) |
 | `SHORTCUTS_HOST` | `127.0.0.1` | Bind address |
 | `SHORTCUTS_PORT` | `8645` | Port |
@@ -117,8 +124,24 @@ keys `ask`, `event`, `remember`, `remind`, `_shared`; values are Hermes toolset 
 | `summarize`, `auto`, `post`, `receipt`, `whiteboard`, `document` | `web`, `vision` |
 | `remember` | `web`, `vision`, `memory` |
 | `remind` | `web`, `vision`, `cronjob` |
-| `ask` (Siri) | `web`, `vision`, `memory`, `cronjob`, `todo`, `session_search` |
-| events | `web`, `memory`, `cronjob`, `todo`, `session_search` |
+| `ask` (Siri) | `web`, `vision`, `cronjob`, `todo` |
+| events | `web`, `cronjob`, `todo`, `session_search` |
+
+Every list also carries `no_mcp`, so your globally enabled MCP servers are **not** added to shortcuts turns.
+On top of that, a `pre_tool_call` hook (active only in shortcuts sessions, fail-closed) blocks any tool outside the
+action's list (other plugins' tools, MCP tools, terminal/file/code even if a Hermes fallback widened the toolset), lets
+`cronjob` only **create** or **list** jobs (no update/remove/run, no `script`, `no_agent`, `monitor`, `workdir`,
+`context_from`, skills or model/provider), allows delivery only to your home channel, and forces every job created from
+the phone to run with **no tools** (`enabled_toolsets: []`). Without that, a reminder job would run later with your cron
+toolset, which includes the terminal by default.
+
+Backstop for the unlikely case that the plugin fails to load its hook: pin the platform's default too, so a Hermes
+fallback can never be the full toolset:
+
+```yaml
+platform_toolsets:
+  shortcuts: [web, vision, no_mcp]
+```
 
 ## HTTP API
 
@@ -217,8 +240,9 @@ The reply goes to Telegram.
   give it to anyone, and use one Hermes install per person.
 * **What a request can do:** it runs a normal agent turn. With the default `SHORTCUTS_TOOL_PROFILE=safe`, shortcuts
   turns only get the toolsets their action needs (table above): **no terminal, file, code execution, browser,
-  computer-use, delegation or skill writing**. With `full`, a token holder (or a prompt injection in a page you shared)
-  gets your gateway's full toolset, including the terminal on your server. Only switch to `full` if you need it.
+  computer-use, delegation, skill writing or MCP tools**, enforced twice (see *Per-action toolsets*). With `full`, a token holder (or a prompt injection in a page you shared)
+  gets your gateway's full toolset, including the terminal on your server, and cron jobs it creates run later with
+  your cron toolset (terminal included). Only switch to `full` if you need it.
 * **Approvals are never bypassed or auto-approved.** This surface has no approval buttons and `/approve` is disabled here,
   so a command that needs approval waits for the approval timeout and is then denied. Note that Hermes only asks for
   approval for commands it considers dangerous; ordinary commands (e.g. `curl`) run without asking, which is why the
@@ -228,8 +252,13 @@ The reply goes to Telegram.
   characters are stripped, text is capped at 8,000 chars, and slash commands / gateway control are disabled
   (`allow_gateway_control=False`). Fencing reduces but cannot eliminate injection; the restricted toolset is what limits
   the damage. Hermes' own web tools block private/internal addresses (SSRF), but in the `full` profile the agent can
-  still reach them through the terminal. `remember` writes to long-term memory and `remind` creates cron jobs, so only
-  use them on content you trust; cron jobs run later with Hermes' cron toolset.
+  still reach them through the terminal. **Stored injection:** `remember` writes shared content into long-term memory, and memory is part of the
+  system prompt of *every* later session, including Telegram/CLI sessions that have the terminal. Use `remember` only
+  on content you trust and review `~/.hermes/memories/` now and then. `remind` stores (part of) the shared content as
+  the cron prompt; jobs created from the phone run with no tools, so at worst they deliver odd text.
+* **Exfiltration:** every turn sees your memory and user profile (as on every platform). A malicious page could try
+  to make the agent put that text into a `web_extract`/`web_search` URL. The safe profile keeps `session_search`
+  (your whole chat history) out of `ask` and the share actions for that reason.
 * **Limits:** uploads ≤ 15 MB per request and 200 MB per hour (configurable), ≤ 4 files, 20 requests/min, 3 concurrent,
   auth-failure lockout (10 failures / 5 min per client, which never locks out the valid token). Images are
   type-sniffed by magic bytes; HEIC is rejected; document names are reduced to a safe basename. Files from a rejected

@@ -8,6 +8,7 @@ import uuid
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SECRETS: dict = {}
+SESSION_ENV: dict = {}
 CACHE = pathlib.Path(tempfile.mkdtemp(prefix="hs-cache-"))
 
 
@@ -22,6 +23,8 @@ def _install_stubs():
     shared = types.ModuleType("gateway.platforms._shared")
     agent = types.ModuleType("agent"); agent.__path__ = []
     scope = types.ModuleType("agent.secret_scope")
+    sctx = types.ModuleType("gateway.session_context")
+    sctx.get_session_env = lambda name, default="": SESSION_ENV.get(name, default)
 
     class Platform(str):
         def __new__(cls, v):
@@ -93,7 +96,7 @@ def _install_stubs():
     scope.get_secret = get_secret
     for name, mod in {"gateway": gw, "gateway.config": cfg, "gateway.platforms": plats,
                       "gateway.platforms.base": base, "gateway.platforms.event": ev,
-                      "gateway.platforms._shared": shared, "agent": agent, "agent.secret_scope": scope}.items():
+                      "gateway.platforms._shared": shared, "gateway.session_context": sctx, "agent": agent, "agent.secret_scope": scope}.items():
         sys.modules[name] = mod
 
 

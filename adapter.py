@@ -10,18 +10,20 @@ Security: bearer token (hashed constant-time compare, 32+ chars, placeholders re
 unless SHORTCUTS_ALLOW_PUBLIC_BIND=true, body/upload size caps and an hourly upload budget, sliding-window
 rate limit, per-client auth-failure lockout that never locks out the valid token, max concurrent
 requests, payload fenced as untrusted data with a per-request marker, no gateway control/slash commands,
-and a restricted per-action toolset (no terminal/file/code/browser) unless SHORTCUTS_TOOL_PROFILE=full.
+a restricted per-action toolset (no terminal/file/code/browser/MCP) unless SHORTCUTS_TOOL_PROFILE=full,
+enforced twice: toolsets_for_source and a fail-closed pre_tool_call allowlist (which also limits cronjob to
+create/list and gives created jobs no tools).
 The plugin never logs the token or request bodies (Hermes core logs a short preview of each inbound
 message, like on every platform).
 """
 from __future__ import annotations
 
 import asyncio
-import ipaddress
 import json
 import logging
 import os
 import time
+import types
 import uuid
 from dataclasses import dataclass, field
 from typing import Any, Optional
@@ -49,6 +51,7 @@ DEFAULT_PORT = 8645
 MAX_REPLY_CHARS = 30000
 WORKING_TEXT = "Working on it. I'll send the result to Telegram."
 _CTX = None  # PluginContext, set in register()
+_ADAPTER: "Optional[ShortcutsAdapter]" = None  # the live adapter, for the pre_tool_call policy
 
 
 # -- config -------------------------------------------------------------------------------------------
@@ -208,6 +211,8 @@ class ShortcutsAdapter(BasePlatformAdapter):
             logger.error("[shortcuts] cannot listen on %s:%s: %s", self._host, self._port, e)
             await self._cleanup_runner()
             return False
+        global _ADAPTER
+        _ADAPTER = self
         self._mark_connected()
         self._wire_plugin_handlers(None)
         logger.info("[shortcuts] listening on http://%s:%d (tool profile: %s)", self._host, self._port, self._tool_profile)
@@ -222,7 +227,10 @@ class ShortcutsAdapter(BasePlatformAdapter):
             self._runner = None
 
     async def disconnect(self) -> None:
+        global _ADAPTER
         self._mark_disconnected()
+        if _ADAPTER is self:
+            _ADAPTER = None
         await self._cleanup_runner()
         for p in self._pending.values():
             if not p.future.done():
@@ -237,10 +245,26 @@ class ShortcutsAdapter(BasePlatformAdapter):
 
     def toolsets_for_source(self, source) -> Optional[list[str]]:
         """Restrict each shortcuts turn to the toolsets its action needs (see actions.SAFE_TOOLSETS).
-        Unknown chats (e.g. a cron job delivering here) get the most restricted shared set."""
-        pending = self._pending.get(str(getattr(source, "chat_id", "") or ""))
-        action = pending.action if pending is not None else "_shared"
-        return A.toolsets_for_action(action, self._tool_profile, self._toolset_overrides)
+        Unknown chats (e.g. a cron job delivering here) get the most restricted shared set.
+        Never raises: Hermes treats an exception here as "no override" (the full platform toolset)."""
+        try:
+            pending = self._pending.get(str(getattr(source, "chat_id", "") or ""))
+            action = pending.action if pending is not None else "_shared"
+            return A.toolsets_for_action(action, self._tool_profile, self._toolset_overrides)
+        except Exception:
+            return list(A.SAFE_TOOLSETS["_shared"])
+
+    def tool_decision(self, chat_id: str, tool_name: str, args) -> Optional[dict]:
+        """Second, fail-closed layer under toolsets_for_source: checked on every tool call of a shortcuts
+        turn (pre_tool_call), so a core fallback to the full toolset, other plugins' toolsets or MCP
+        tools still cannot run, and cron jobs created here run with no tools."""
+        toolsets = self.toolsets_for_source(types.SimpleNamespace(chat_id=chat_id))
+        if toolsets is None:
+            return None
+        deliver_ok = {"origin", "local", PLATFORM}
+        if self._notify_target and self._notify_target.lower() != "none":
+            deliver_ok.add(self._notify_target.lower())
+        return A.tool_policy(tool_name, args, toolsets, _allowed_tool_names(tuple(toolsets)), deliver_ok)
 
     # -- outbound (agent -> phone) --------------------------------------------------------------------
 
@@ -340,14 +364,15 @@ class ShortcutsAdapter(BasePlatformAdapter):
         return web.json_response({"ok": False, "error": error}, status=status)
 
     def _client_key(self, request) -> str:
+        """Lockout key. NOTE: any local process that can reach the loopback port (other users, a local
+        proxy/VPN that forwards to 127.0.0.1) can set this header too; the global cap still applies."""
         peer = (request.remote or "").strip()
         if self._client_ip_header and A.is_loopback(peer):
             fwd = (request.headers.get(self._client_ip_header, "") or "").split(",")[0].strip()
-            try:
-                return str(ipaddress.ip_address(fwd))
-            except ValueError:
-                pass
-        return peer or "unknown"
+            bucket = A.client_bucket(fwd)
+            if bucket is not None:
+                return bucket
+        return A.client_bucket(peer) or peer or "unknown"
 
     async def _gate(self, request) -> Optional[Any]:
         """Auth first: the valid token is never locked out. Then rate and concurrency limits.
@@ -551,9 +576,56 @@ class ShortcutsAdapter(BasePlatformAdapter):
                                   "forwarded_to": delivered}, status=status)
 
 
+_TOOL_NAME_CACHE: dict = {}
+
+
+def _allowed_tool_names(toolsets: tuple) -> set:
+    """Concrete tool names allowed for ``toolsets``."""
+    cached = _TOOL_NAME_CACHE.get(toolsets)
+    if cached is not None:
+        return cached
+    # A static map, not core's resolver (a private module): a tool renamed by a future Hermes release is
+    # blocked (fail-closed) until this map is updated, never silently allowed.
+    names: set = set()
+    for ts in toolsets:
+        names |= A.FALLBACK_TOOL_NAMES.get(ts, set())
+    names -= A.ALWAYS_BLOCKED
+    if len(_TOOL_NAME_CACHE) < 64:
+        _TOOL_NAME_CACHE[toolsets] = names
+    return names
+
+
+def _session_value(name: str) -> str:
+    try:
+        from gateway.session_context import get_session_env
+        return str(get_session_env(name, "") or "")
+    except Exception:
+        return str(os.environ.get(name, "") or "")
+
+
+_DENY = {"action": "block", "message": "Tool blocked: hermes-shortcuts could not verify this phone request's "
+                                       "tool policy (fail-closed)."}
+
+
+def _on_pre_tool_call(tool_name: str = "", args: Any = None, **_: Any) -> Optional[dict]:
+    """pre_tool_call hook: only acts inside shortcuts sessions; fails CLOSED there."""
+    platform = ""
+    try:
+        platform = _session_value("HERMES_SESSION_PLATFORM").strip().lower()
+        if platform != PLATFORM:
+            return None
+        adapter = _ADAPTER
+        if adapter is None:
+            return _DENY
+        return adapter.tool_decision(_session_value("HERMES_SESSION_CHAT_ID"), tool_name, args)
+    except Exception:
+        return _DENY if platform == PLATFORM else None
+
+
 def register(ctx) -> None:
     global _CTX
     _CTX = ctx
+    ctx.register_hook("pre_tool_call", _on_pre_tool_call)
     ctx.register_platform(
         name=PLATFORM, label="Shortcuts (iOS / Android)",
         adapter_factory=lambda cfg: ShortcutsAdapter(cfg),
