@@ -530,16 +530,29 @@ class ShortcutsAdapter(BasePlatformAdapter):
             media_types.append(mime)
             kinds.append(kind)
 
+        save_requested = False
         if prompt is None:
             if not (text or url or media_urls):
                 return self._reject(400, "nothing to do: send text, url or a file", fmt)
             if action == "ask" and not (text or url) and media_urls:
                 action = "auto"
+            save_note = False
+            if action == "ask" and text:
+                # "Save the answer" / "sokhrani otvet" in a spoken question: forward the reply to the home
+                # channel like the other actions do. A whole leading/trailing command segment is dropped
+                # from the question; one left inside it gets a short note so the model just answers.
+                question, save_requested = A.split_save_command(text)
+                save_note = save_requested and question == text
+                text = question
             prompt = A.build_prompt(action, text=text, url=url, when=when, note=note,
-                                    has_attachment=bool(media_urls), attachment_kind="/".join(kinds))
+                                    has_attachment=bool(media_urls), attachment_kind="/".join(kinds),
+                                    save_note=save_note)
 
-        notify_raw = str(fields.get("notify", "auto")).lower()
-        notify = notify_default if notify_raw == "auto" else A.parse_bool(notify_raw)
+        # notify: auto (default; what the published shortcuts send, since they omit the field) | true | false.
+        # A spoken save request turns auto into true. An explicit notify=false (only sent by a shortcut
+        # built to do so) still wins, also on timeout.
+        notify_raw = str(fields.get("notify", "auto")).strip().lower() or "auto"
+        notify = (notify_default or save_requested) if notify_raw == "auto" else A.parse_bool(notify_raw)
         # notify=false is honoured even when the sync wait times out (the reply is then dropped).
         forward_on_timeout = notify_raw == "auto" or notify
         sync = A.parse_bool(fields.get("sync"), True)

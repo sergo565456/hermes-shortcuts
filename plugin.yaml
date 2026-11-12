@@ -8,7 +8,8 @@ description: >
   "Hey Siri, ask Hermes" with a synchronous spoken reply, photo-as-task and
   optional event triggers. `hermes shortcuts pair` prints a QR code that pairs the
   iPhone "Hermes Setup" shortcut in one scan. Replies come back in the HTTP response and are
-  forwarded to your Telegram (or other) home channel. Off until SHORTCUTS_TOKEN
+  forwarded to your Telegram (or other) home channel (Siri questions only when you say
+  "save the answer" or the request times out). Off until SHORTCUTS_TOKEN
   is set and the plugin is enabled; listens on 127.0.0.1:8645 by default.
 requires_hermes: ">=0.23.1"
 author: "sergo565456"

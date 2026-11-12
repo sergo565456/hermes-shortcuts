@@ -8,7 +8,7 @@ endpoint that your phone can call:
 | You do on the phone | What Hermes does | Where the answer goes |
 |---|---|---|
 | **Share Sheet**: Share → *Hermes* on a link, article, YouTube video, text, PDF or screenshot, then pick **Summarize / Remember / Remind / Post / Auto** | Runs a normal agent turn with that action preset (web tools, memory, cron, vision) | Shown in Shortcuts **and** sent to your Telegram home channel |
-| **"Hey Siri, Ask Hermes"**: dictate a question | Answers it | Siri **speaks** the reply (synchronous). If it takes longer than the timeout, Siri says "working on it" and the answer goes to Telegram |
+| **"Hey Siri, Ask Hermes"**: dictate a question | Answers it | Siri **speaks** the reply (synchronous). Say *"save the answer"* (in English or Russian) to also get it in Telegram. If it takes longer than the timeout, Siri says "working on it" and the answer goes to Telegram |
 | **Photo as task**: snap a receipt, whiteboard or document | Extracts the expense line, transcribes it and makes a checklist, or digitizes the document | Shortcuts + Telegram |
 | **Event triggers** (Shortcuts Automations): *Arrive home*, *Alarm stopped*, *Charger connected*… | Runs the prompt you mapped to that event (morning briefing, evening recap…) | Telegram |
 
@@ -183,12 +183,12 @@ Auth: `Authorization: Bearer <token>` (or `X-Hermes-Token: <token>`). Tokens in 
 
 | Endpoint | Body | Notes |
 |---|---|---|
-| `POST /v1/ask` | `text` (JSON, form, or a `text/plain` body) | Plain question. Not forwarded to Telegram unless `notify=true` or it times out |
+| `POST /v1/ask` | `text` (JSON, form, or a `text/plain` body) | Plain question. Not forwarded to Telegram unless the question asks to save it (see below), `notify=true` is sent, or it times out |
 | `POST /v1/share` | `action`, `text`, `url`, `file` (multipart, up to 4), `when` (for remind), `note` | Also accepts a raw `image/*` or `application/pdf` body with `?action=` |
 | `POST /v1/event` | `event` | Runs the mapped event prompt |
 | `GET /health` | — | Liveness only (no data) |
 
-Common fields: `notify` (`auto`/`true`/`false`), `sync` (default `true`), `timeout` (seconds), `format=text`
+Common fields: `notify` (`auto`/`true`/`false`; `auto` forwards everything except a plain `ask` without a save command), `sync` (default `true`), `timeout` (seconds), `format=text`
 (returns the bare reply text, which is handy for *Speak Text*).
 
 Response (JSON):
@@ -251,6 +251,21 @@ Steps 1–6 are the **config block**. Every other Hermes shortcut starts with it
     to read `hermes.json` and to connect to your host. Choose **Always Allow**.
 
 Siri waits about 25 s (`SHORTCUTS_SYNC_TIMEOUT`). Longer jobs say "Working on it…" and finish in Telegram.
+
+**Save an answer to Telegram.** Siri answers only on the phone by default. Add an explicit save command to the
+question and the reply is also sent to your Telegram home channel (also when it times out), for example
+*"What's the weather tomorrow? Save the answer."* Recognised commands
+(case and Siri's punctuation don't matter):
+
+* English: *save the answer / reply / result*, *save this*, *save it*, *keep this*, *send / forward it to Telegram*
+* Russian: the same commands said in Russian (*save (the answer / this / the result)*, *write it down*,
+  *duplicate it*, *send it to Telegram*), in the familiar and the polite form
+
+Questions *about* saving (*"how to save money"*, *"how do I save a file"*, in either language) don't count. A command at the start or the
+end of the question is removed before Hermes sees the question. The forward is done by the plugin, not by the agent.
+The published *Ask Hermes* shortcut doesn't send `notify`, so the spoken command decides; a shortcut that sends
+`notify=false` never forwards. The published shortcut dictates in English (`en-US`); for Russian questions, set
+*Dictate Text* → **Language** to Russian in your copy.
 
 ### 2. "Hermes" (Share Sheet: links and text PDFs, screenshots)
 1. New shortcut **Hermes**. Tap ⓘ (*Details*) → turn on **Show in Share Sheet**. In the *Receive* block at the top, choose **URLs, Text, Safari web pages, Images, PDFs, Files**.

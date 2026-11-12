@@ -197,15 +197,22 @@ def toolsets_for_action(action: str, profile: str = "safe", overrides: Optional[
     return list(SAFE_TOOLSETS.get(key, SAFE_TOOLSETS["_shared"]))
 
 
+SAVE_NOTE = ("[Hermes Shortcuts: your answer will be forwarded to the user's Telegram automatically. "
+             "Just answer; do not try to save or send it yourself.]")
+
+
 def build_prompt(action: str, *, text: str = "", url: str = "", when: str = "", note: str = "",
-                 has_attachment: bool = False, attachment_kind: str = "", nonce: Optional[str] = None) -> str:
+                 has_attachment: bool = False, attachment_kind: str = "", nonce: Optional[str] = None,
+                 save_note: bool = False) -> str:
     """Build the user message for the agent. Shared payloads are fenced as untrusted data with a
-    per-request random marker, and fence-like text inside them is neutralised."""
+    per-request random marker, and fence-like text inside them is neutralised. ``save_note`` (ask
+    only) tells the model that a save request left in the question is handled by the plugin."""
     if action == "ask":
         body = text or url
         if url and text and url not in text:
             body = f"{text}\n{url}"
-        return defang_command(neutralize_context_refs(body))
+        body = defang_command(neutralize_context_refs(body))
+        return f"{body}\n\n{SAVE_NOTE}" if save_note else body
     when = neutralize_untrusted(when).replace("{", "(").replace("}", ")")
     instruction = ACTIONS[action].format(when=when or "tomorrow at 09:00 in my timezone")
     if note:
@@ -406,6 +413,119 @@ def tool_policy(tool_name: str, args, toolsets: Optional[list[str]], allowed_nam
         mod["repeat"] = cap if rep is None or rep < 1 or rep > cap else rep
         return {"action": "modify", "args": mod}
     return None
+
+
+# -- "save the answer" detection (Siri ask) --------------------------------------------------------
+# A spoken ask normally comes back only to the phone. When the user explicitly asks to save / keep the
+# answer or to send it to Telegram, the adapter forwards the reply to the home channel (code-side, same
+# route as every other forward). Only explicit imperative phrases count; questions ABOUT saving
+# ("how to save money", "how do I save a file") do not. Siri dictation adds capitals and punctuation,
+# so matching is case-insensitive and punctuation splits command segments.
+#
+# Russian trigger vocabulary (functional regex data, kept in one place; transliteration in comments):
+_RU = {
+    # sokhrani / zapishi (imperative "save" / "write down"), with the polite -te form
+    "save": r"(?:сохрани|запиши)(?:те)?",
+    # produbliruy / dubliruy / otprav' / prishli / skin' / kin' / pereshli / otoshli ("duplicate" / "send")
+    "send": r"(?:продублируй|дублируй|отправь|пришли|скинь|кинь|перешли|отошли)(?:те)?",
+    # eto / etot otvet / otvet / rezul'tat ("this" / "the answer" / "the result")
+    "obj": r"(?:этот\s+ответ|это|ответ|результат)",
+    # ego / ee / vsyo ("it" / "all"): only at the end of a segment ("zapishi ego nomer" is not a command)
+    "obj_end": r"(?:его|ее|все)",
+    # mne / sebe / pozhaluysta / tozhe / takzhe / eshchyo ("me" / "yourself" / "please" / "too" / "also")
+    "filler": r"(?:мне|себе|пожалуйста|плиз|тоже|также|еще)",
+    # i / a takzhe ("and" / "and also")
+    "join": r"(?:и|а\s+также|а\s+еще|и\s+еще)",
+    # v / na / vo + telegram / telega / tg
+    "to_tg": r"(?:в|во|на)\s+(?:телеграм\w*|телеграмм\w*|телег[аеиу]|тг|telegram)",
+}
+_EN = {
+    "save": r"(?:save|keep|store)",
+    "send": r"(?:send|forward|copy|duplicate|post|push|drop|put)",
+    "obj": r"(?:(?:the|this|that|your|my)\s+)?(?:answers?|repl(?:y|ies)|responses?|results?)",
+    "obj_end": r"(?:it|this|that)",
+    "filler": r"(?:please|pls|also|too|as\s+well|just)",
+    "join": r"(?:and|then|and\s+then|and\s+also|also|please)",
+    "to_tg": r"(?:to|in|on|into|via)\s+(?:my\s+)?telegram",
+}
+_SEG_END = r"(?=\s*(?:[.,!?;:\n]|$))"
+_SEG_START = r"(?:^|[.,!?;:\n\u2014\u2013-])\s*"
+
+
+def _save_patterns(L: dict, anywhere_obj: bool) -> list:
+    f = rf"(?:\s+{L['filler']})*"
+    verb_any = rf"(?:{L['save']}|{L['send']})"
+    lead = rf"(?:{_SEG_START}(?:{L['join']}\s+)?|\s{L['join']}\s+)(?:{L['filler']}\s+)*"
+    pats = [
+        # "<verb> ... to Telegram" ("send it to Telegram", "otprav' v telegram")
+        rf"{lead}{verb_any}\b(?:\s+[^\s.,!?;:]+){{0,3}}?\s+{L['to_tg']}\b",
+        # "save the answer" / "sokhrani otvet"
+        rf"{lead}{L['save']}{f}\s+{L['obj']}\b",
+        # "save it." / "keep this." as a whole segment
+        rf"{lead}{L['save']}{f}\s+{L['obj_end']}{f}{_SEG_END}",
+        # bare "save." / "sokhrani." / "produbliruy." as a whole segment
+        rf"{lead}{verb_any}{f}{_SEG_END}",
+    ]
+    if anywhere_obj:  # Russian imperatives are unambiguous, so position does not matter for them
+        pats += [rf"\b{L['save']}{f}\s+{L['obj']}\b", rf"\b{L['obj']}\s+{L['save']}\b",
+                 rf"\b{verb_any}\b(?:\s+[^\s.,!?;:]+){{0,3}}?\s+{L['to_tg']}\b"]
+    return pats
+
+
+_SAVE_RE = re.compile("|".join(f"(?:{p})" for p in _save_patterns(_RU, True) + _save_patterns(_EN, False)),
+                      re.IGNORECASE)
+# Words a stand-alone save-command segment may consist of (anything else: the segment is kept).
+_CMD_WORD = re.compile(r"\b(?:" + "|".join(f"(?:{L[k]})" for L in (_RU, _EN) for k in ("save", "send", "obj", "obj_end",
+                                                                             "filler", "join", "to_tg"))
+                       + r"|(?:the|this|that|it|my|me|to|in|on|into|via|telegram|answer|reply|response|result))\b",
+                       re.IGNORECASE)
+
+
+def _fold(text: str) -> str:
+    """Same-length folding for matching (yo -> ye), so match offsets stay valid on the original text."""
+    return (text or "").replace("\u0451", "\u0435").replace("\u0401", "\u0415")
+
+
+def wants_save(text: str) -> bool:
+    """True when ``text`` explicitly asks to save / keep the answer or to send it to Telegram."""
+    if not isinstance(text, str) or not text.strip():
+        return False
+    return _SAVE_RE.search(_fold(text)[:MAX_TEXT_CHARS]) is not None
+
+
+def _only_command_words(seg: str) -> bool:
+    words = re.sub(r"[^\w\s-]", " ", _fold(seg))
+    return not re.sub(r"[\s-]+", "", _CMD_WORD.sub(" ", words))
+
+
+def _is_command_segment(seg: str) -> bool:
+    """A segment made only of save-command vocabulary that is itself a save request."""
+    return wants_save(seg) and _only_command_words(seg)
+
+
+_LEAD_SPLIT = re.compile(r"^\s*([^.,!?;:\n]+?)\s*[.,!?;:\n\u2014\u2013]+\s*(?=\S)")
+_TAIL_SPLIT = re.compile(r"([.,!?;:\n\u2014\u2013]|\s(?:and|then|also|\u0438|\u0430\s+\u0442\u0430\u043a\u0436\u0435)\s)"
+                         r"\s*([^.,!?;:\n]+?)[\s.!?]*$", re.IGNORECASE)
+
+
+def split_save_command(text: str) -> tuple[str, bool]:
+    """(question, save_requested). A save command that is a whole leading or trailing segment
+    ("Save the answer. What is ...", "... and send it to Telegram.") is removed from the question;
+    one in the middle of a sentence is left in place (conservative). Never returns an empty question."""
+    if not wants_save(text):
+        return text, False
+    out = text
+    m = _LEAD_SPLIT.match(out)
+    if m and _is_command_segment(m.group(1)):
+        out = out[m.end():]
+    m = _TAIL_SPLIT.search(out)
+    if m and _is_command_segment(m.group(2)):
+        keep = m.group(1) if m.group(1) in "?!." else ""
+        out = out[:m.start()].rstrip() + keep
+    out = out.strip()
+    if not re.search(r"\w", out) or _only_command_words(out):
+        return text, True  # nothing but the command: leave the text as it was
+    return out, True
 
 
 _MD_LINK = re.compile(r"!?\[([^\]\n]{0,300})\]\(\s*<?([^)\s>]+)>?(?:\s+\"[^\"]*\")?\s*\)")

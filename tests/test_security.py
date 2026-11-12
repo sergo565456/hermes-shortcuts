@@ -352,3 +352,51 @@ def test_share_ask_is_fenced_and_garbage_action_is_unknown():
                                                  "notify": False}, headers=H)  # fullwidth "remind"
         assert r.status == 200 and (await r.json())["action"] == "remind"
     run(_with_adapter(fn))
+
+
+def test_spoken_save_request_forwards_ask_reply():
+    sent = []
+
+    class TG:
+        async def send(self, chat_id, content, metadata=None):
+            sent.append(content)
+            return types.SimpleNamespace(success=True, message_id="1")
+
+    class Runner:
+        adapters = {"telegram": TG()}
+        config = types.SimpleNamespace(get_home_channel=lambda plat: types.SimpleNamespace(chat_id="42", thread_id=None))
+
+    async def fn(ad, ok, s, u):
+        ad.gateway_runner, ad._notify_target = Runner(), "telegram"
+        r = await s.post(u + "/v1/ask?format=text", json={"text": "What is 2+2"}, headers=H)
+        assert r.status == 200 and not sent  # a plain ask stays on the phone
+        r = await s.post(u + "/v1/ask", json={"text": "What is 2+2? Save the answer."}, headers=H)
+        body = await r.json()
+        assert body["forwarded_to"] == "telegram" and len(sent) == 1 and "Shortcuts · ask" in sent[0]
+        assert ad.last_event.text == "What is 2+2?"  # trailing command removed from the question
+        r = await s.post(u + "/v1/ask", json={"text": "Сохрани ответ сколько будет два плюс два"}, headers=H)
+        assert (await r.json())["forwarded_to"] == "telegram" and len(sent) == 2
+        assert ad.last_event.text.endswith(A.SAVE_NOTE)  # command left inside the question: note added
+        r = await s.post(u + "/v1/ask", json={"text": "Сохрани ответ: 2+2", "notify": False}, headers=H)
+        assert (await r.json())["forwarded_to"] is None and len(sent) == 2  # explicit notify=false wins
+        r = await s.post(u + "/v1/ask", json={"text": "2+2", "notify": True}, headers=H)
+        assert (await r.json())["forwarded_to"] == "telegram" and len(sent) == 3
+
+        # sync wait times out: the reply still reaches Telegram when it arrives
+        async def slow(event):
+            ad.last_event = event
+
+            async def later():
+                await asyncio.sleep(3.5)
+                await ad.send(event.source.chat_id, "late reply")
+                await ad.on_processing_complete(event, sys.modules["gateway.platforms.event"].ProcessingOutcome.SUCCESS)
+            asyncio.ensure_future(later())
+        ad.handle_message = slow
+        r = await s.post(u + "/v1/ask?format=text", json={"text": "Long question. Запиши.", "timeout": 3}, headers=H)
+        assert r.status == 202 and (await r.text()) == AD.WORKING_TEXT
+        for _ in range(40):
+            if len(sent) == 4:
+                break
+            await asyncio.sleep(0.1)
+        assert len(sent) == 4 and "late reply" in sent[3]
+    run(_with_adapter(fn))
