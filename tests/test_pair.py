@@ -1,8 +1,9 @@
-"""Pairing QR: payload, URL resolution, cloudflared detection, rendering, and no token leaks."""
+"""Pairing QR: payload, URL resolution, rendering, and no token leaks."""
 import io
 import json
 import logging
 import os
+import pathlib
 import stat
 import types
 import zlib
@@ -51,51 +52,33 @@ def test_allow_http_opt_in():
     assert pair.normalize_url("http://example.com", allow_http=True) == "http://example.com"
 
 
-class _Resp(io.BytesIO):
-    def __enter__(self): return self
-    def __exit__(self, *a): return False
-
-
-class _Opener:
-    def __init__(self, answers): self.answers, self.calls = answers, []
-
-    def open(self, url, timeout=None):
-        self.calls.append(url)
-        ans = self.answers.get(url)
-        if ans is None:
-            raise OSError("refused")
-        return _Resp(ans)
-
-
-def test_metrics_opener_refuses_redirects():
-    assert pair._NoRedirect().redirect_request(None, None, 302, "Found", {}, "http://evil.example/") is None
-
-
-def test_detect_quick_tunnel_scans_local_ports():
-    op = _Opener({"http://127.0.0.1:20242/quicktunnel": b'{"hostname":"adsl-foo-bar.trycloudflare.com"}'})
-    assert pair.detect_quick_tunnel_url(opener=op) == "https://adsl-foo-bar.trycloudflare.com"
-    assert all(c.startswith("http://127.0.0.1:") for c in op.calls)
-
-
-@pytest.mark.parametrize("body", [b'{"hostname":""}', b'{"hostname":"evil.com"}', b"not json",
-                                  b'{"hostname":"x.trycloudflare.com.evil.com"}', b'["x"]',
-                                  b'{"hostname":"a/b.trycloudflare.com"}'])
-def test_detect_ignores_bad_answers(body):
-    op = _Opener({"http://127.0.0.1:20241/quicktunnel": body})
-    assert pair.detect_quick_tunnel_url(opener=op) is None
-
-
 def test_resolve_order(monkeypatch):
     monkeypatch.delenv("SHORTCUTS_PUBLIC_URL", raising=False)
     monkeypatch.setitem(SECRETS, "SHORTCUTS_PUBLIC_URL", "https://env.example.com/")
-    det = lambda: "https://q.trycloudflare.com"
-    assert pair.resolve_url("https://cli.example.com", detect=det)[0] == "https://cli.example.com"
-    assert pair.resolve_url(None, detect=det)[0] == "https://env.example.com"
+    assert pair.resolve_url("https://cli.example.com") == ("https://cli.example.com", "--url")
+    assert pair.resolve_url(None) == ("https://env.example.com", "SHORTCUTS_PUBLIC_URL")
     monkeypatch.delitem(SECRETS, "SHORTCUTS_PUBLIC_URL")
     monkeypatch.setenv("SHORTCUTS_PUBLIC_URL", "https://ignored.example.com")  # profile-unaware env is not read
-    assert pair.resolve_url(None, detect=det) [0] == "https://q.trycloudflare.com"
-    with pytest.raises(pair.PairError):
-        pair.resolve_url(None, detect=lambda: None)
+    with pytest.raises(pair.PairError) as exc:
+        pair.resolve_url(None)
+    msg = str(exc.value)
+    assert "--url" in msg and "SHORTCUTS_PUBLIC_URL" in msg
+    assert "20241" not in msg and "on its own" in msg
+
+
+def test_pairing_does_not_probe_for_a_tunnel():
+    src = pathlib.Path(pair.__file__).read_text(encoding="utf-8")
+    assert not hasattr(pair, "detect_quick_tunnel_url")
+    assert "quicktunnel" not in src and "20241" not in src
+    root = pathlib.Path(__file__).resolve().parents[1]
+    for path in root.rglob("*"):
+        if not path.is_file() or path.suffix not in {".py", ".md", ".yaml", ".yml", ".svg"}:
+            continue
+        if path.name == "test_pair.py" or any(part in {".git", "__pycache__"} for part in path.parts):
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace").lower()
+        for word in ("cloudflared", "ngrok", "localtunnel", "serveo"):
+            assert word not in text, f"{word} in {path}"
 
 
 def _modules(qr):

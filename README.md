@@ -53,13 +53,14 @@ flowchart LR
 
 TODO: screenshot of the Share Sheet menu. TODO: screenshot of Ask Hermes after a spoken answer. TODO: do not commit a real pairing QR.
 
-`hermes shortcuts pair` options: `--url https://your-host` (else `SHORTCUTS_PUBLIC_URL`, else the URL of a
-cloudflared quick tunnel running on this machine), `--invert` (light terminal background), `--png FILE` (saves a
-0600 PNG; delete it after pairing), `--show-token` (also prints the token as text; off by default). If your Hermes
-build has no plugin CLI commands, run `python3 ~/.hermes/plugins/hermes-shortcuts/pair.py pair` instead (with
-Hermes' Python it reads the token through Hermes' secret scope; otherwise it asks for it, hidden).
+`hermes shortcuts pair` needs the public URL explicitly: `--url https://your-host`, or `SHORTCUTS_PUBLIC_URL`
+if you omit `--url`. It does not look for a tunnel on this machine. Other options: `--invert` (light terminal
+background), `--png FILE` (saves a 0600 PNG; delete it after pairing), `--show-token` (also prints the token as
+text; off by default). If your Hermes build has no plugin CLI commands, run
+`python3 ~/.hermes/plugins/hermes-shortcuts/pair.py pair` instead (with Hermes' Python it reads the token through
+Hermes' secret scope; otherwise it asks for it, hidden).
 
-Has the tunnel URL changed, or did you rotate the token? Run `hermes shortcuts pair` again and re-run *Hermes Setup*.
+Has the tunnel URL changed, or did you rotate the token? Set the new URL and run `hermes shortcuts pair` again, then re-run *Hermes Setup*.
 The other shortcuts don't need changes.
 
 > **Maintainers, one-time step:** Apple doesn't let you generate shortcuts as files, and an installable shortcut
@@ -118,20 +119,20 @@ Shortcut at that URL:
 
 * **Tailscale** (most private): `tailscale serve --bg 8645` keeps it inside your tailnet; nothing is on the public
   internet. Needs the Tailscale app on the phone.
-* **Cloudflare named tunnel + Cloudflare Access** (recommended for a public URL): route a hostname on your domain to
-  `http://127.0.0.1:8645` and protect it with an Access application whose policy is *Service Auth* with a
-  **service token**. Add the two headers `CF-Access-Client-Id` / `CF-Access-Client-Secret` to every Shortcut next to
-  `Authorization`; requests without them never reach your server. Set `SHORTCUTS_CLIENT_IP_HEADER=CF-Connecting-IP`.
-* **Cloudflare quick tunnel** (testing only): `cloudflared tunnel --no-autoupdate --url http://127.0.0.1:8645` gives a
-  random `https://<random>.trycloudflare.com` URL that changes on every restart. There is no access control besides the
-  bearer token, and Cloudflare documents quick tunnels as not for production.
+* **A named HTTPS tunnel + an access policy** (recommended for a public URL): route a hostname on your domain to
+  `http://127.0.0.1:8645` and protect it so anonymous requests never reach your server (for example a service-token
+  policy). Add those extra headers to every Shortcut next to `Authorization`. If the proxy sets a client-IP header
+  such as `CF-Connecting-IP`, set `SHORTCUTS_CLIENT_IP_HEADER` to that name.
+* **A temporary public URL** (testing only): some tunnel tools print a random hostname that changes every time they
+  restart. Nothing but the bearer token protects it. Copy that hostname into `--url` or `SHORTCUTS_PUBLIC_URL`. Do not
+  leave a testing URL in place for daily use. Pairing will not find it for you.
 * **Caddy / nginx** reverse proxy with a real certificate (needs root for ports 80/443). Proxy to 127.0.0.1 only, and
   make sure the proxy's access log does **not** record the `Authorization` header.
 
 The plugin never trusts `X-Forwarded-For` for anything. If you set `SHORTCUTS_CLIENT_IP_HEADER` (e.g.
 `CF-Connecting-IP`), that header is used only to key the auth-failure lockout per client (IPv6 per /64), and only
-when the TCP peer is loopback (your local tunnel/proxy). Cloudflare refuses client-supplied `CF-Connecting-IP`, but
-**any local process that can reach 127.0.0.1** can set it, including traffic from a VPN/proxy server on the same
+when the TCP peer is loopback (your local tunnel/proxy). A well-behaved proxy overwrites a client-supplied
+client-IP header, but **any local process that can reach 127.0.0.1** can set it, including traffic from a VPN/proxy server on the same
 host (e.g. Xray/V2Ray/Hysteria with no rule blocking private destinations) and other local users. The lockout is a
 convenience, not the security boundary: the 256-bit token is. A global cap (300 failed attempts / 5 min) still
 applies to everyone, and the valid token is never locked out. If you run a proxy/VPN on the same server, block
@@ -167,8 +168,8 @@ All values are read through `agent.secret_scope.get_secret` when they live in th
 | `SHORTCUTS_MAX_UPLOAD_MB` | `15` | Upload cap per request (1–50) |
 | `SHORTCUTS_MAX_UPLOAD_MB_PER_HOUR` | `200` | Total upload budget per hour (bounds media-cache disk use) |
 | `SHORTCUTS_TOOL_PROFILE` | `safe` | `safe`: each action gets only the toolsets it needs (no terminal/file/code/browser). `full`: the platform's normal toolset |
-| `SHORTCUTS_PUBLIC_URL` | — | Public HTTPS base URL that `hermes shortcuts pair` puts in the QR (else auto-detected from a local cloudflared quick tunnel) |
-| `SHORTCUTS_CLIENT_IP_HEADER` | — | e.g. `CF-Connecting-IP` behind cloudflared; only honoured from a loopback peer, only for the lockout |
+| `SHORTCUTS_PUBLIC_URL` | — | Public HTTPS base URL that `hermes shortcuts pair` puts in the QR. Required unless you pass `--url`. Nothing is discovered automatically |
+| `SHORTCUTS_CLIENT_IP_HEADER` | — | e.g. `CF-Connecting-IP` behind your HTTPS tunnel; only honoured from a loopback peer, only for the lockout |
 
 Custom event prompts (`config.yaml`):
 
@@ -384,7 +385,7 @@ not open your tunnel by itself, and it does not keep your token.
   Shortcuts*.
 * **401 / "unauthorized"**: the token changed. Run `hermes shortcuts pair` and *Hermes Setup* again. Also check that
   the header value is `Bearer`, one space, then the token.
-* **Can't connect**: the quick-tunnel URL changed. Run `hermes shortcuts pair` again and re-scan.
+* **Can't connect**: the tunnel URL changed, or `hermes shortcuts pair` was run without `--url` / `SHORTCUTS_PUBLIC_URL`. Set the URL, run `hermes shortcuts pair` again, and re-scan.
 * **QR won't scan**: run with `--invert`, make the terminal font smaller or the window larger, or use
   `--png FILE` and open the file on your computer (then delete it).
 
@@ -466,8 +467,8 @@ not open your tunnel by itself, and it does not keep your token.
 * **Credentials** are read only through `agent.secret_scope.get_secret`. The plugin never reads `.env` or credential files.
 * **Pairing CLI:** `hermes shortcuts pair` (registered with `register_cli_command`) prints the URL and a QR code that
   contains the token. It never logs the token and prints it as text only with `--show-token`. `--png` files are written
-  0600 without following symlinks. To find a quick-tunnel URL it queries only cloudflared's local metrics endpoint
-  (`127.0.0.1:20241-20245/quicktunnel`, no proxy). The QR is rendered by a vendored copy of Project Nayuki's MIT-licensed
+  0600 without following symlinks. The URL is only what you pass as `--url` or set in `SHORTCUTS_PUBLIC_URL`; pairing
+  makes no network calls and does not probe local ports. The QR is rendered by a vendored copy of Project Nayuki's MIT-licensed
   pure-Python QR generator (`_qrcodegen.py`), so pairing installs nothing.
 
 ### Your token on the phone

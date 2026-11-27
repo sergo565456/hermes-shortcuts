@@ -74,7 +74,7 @@ optional_env:
     prompt: "Client IP header (optional)"
     password: false
   - name: SHORTCUTS_PUBLIC_URL
-    description: "Public HTTPS base URL for `hermes shortcuts pair` (default: auto-detect a local cloudflared quick tunnel)"
+    description: "Public HTTPS base URL for `hermes shortcuts pair`. Required for pairing unless you pass --url. No tunnel is discovered automatically."
     prompt: "Public HTTPS URL (optional)"
     password: false
 
@@ -150,4 +150,4 @@ config_schema:
     type: str
     default: ""
     label: Public URL
-    description: "HTTPS base URL that `hermes shortcuts pair` puts in the QR code. Leave empty to auto-detect a local quick tunnel."
+    description: "HTTPS base URL that `hermes shortcuts pair` puts in the QR code. Required for pairing unless you pass --url."

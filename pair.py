@@ -6,8 +6,7 @@ the shortcuts you share (iCloud links) never contain a token.
 
 Security: the token is read through Hermes' secret scope (like the adapter), never logged, and printed
 only inside the QR (``--show-token`` prints it as text, off by default). ``--png`` writes a 0600 file.
-The plugin makes no network calls except the optional local auto-detect of a cloudflared quick tunnel
-on 127.0.0.1 (cloudflared's metrics endpoint).
+Pairing makes no network calls. The public URL comes only from ``--url`` or ``SHORTCUTS_PUBLIC_URL``.
 """
 from __future__ import annotations
 
@@ -15,13 +14,11 @@ import argparse
 import ipaddress
 import json
 import os
-import re
 import struct
 import sys
 import urllib.parse
-import urllib.request
 import zlib
-from typing import Iterable, Optional
+from typing import Optional
 
 try:  # loaded as part of the plugin package (hermes shortcuts pair)
     from . import actions as A
@@ -33,8 +30,6 @@ except ImportError:  # pragma: no cover - run as a plain script: python3 pair.py
 
 PAYLOAD_VERSION = 1
 CONFIG_FILE = "hermes.json"
-METRICS_PORTS = tuple(range(20241, 20246))  # cloudflared's default metrics ports (first free one is used)
-_QUICK_HOST = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.trycloudflare\.com$")
 WARNING = ("This QR code contains your Shortcuts token. Don't screenshot, photograph or share it; "
            "anyone who scans it can act as you. Clear the terminal (`clear`) after pairing.")
 
@@ -117,44 +112,11 @@ def _is_private_host(host: str) -> bool:
     return ip.is_private or ip.is_loopback or cgnat
 
 
-class _NoRedirect(urllib.request.HTTPRedirectHandler):
-    """Refuse redirects from the metrics endpoint. A 302 could point the next GET (and, if we
-    trusted the body, the pairing QR) at somewhere other than 127.0.0.1."""
+def resolve_url(cli_url: Optional[str], allow_http: bool = False) -> tuple[str, str]:
+    """(base URL, where it came from): ``--url``, else ``SHORTCUTS_PUBLIC_URL``.
 
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        return None
-
-
-def _metrics_opener():
-    """Localhost only, no proxy, no redirects."""
-    return urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect())
-
-
-def detect_quick_tunnel_url(ports: Iterable[int] = METRICS_PORTS, timeout: float = 1.0,
-                            opener=None) -> Optional[str]:
-    """Ask a local cloudflared (metrics endpoint, 127.0.0.1 only) for its quick-tunnel hostname.
-
-    Any process that can bind 127.0.0.1:20241-20245 can answer this. The hostname is only accepted
-    when it matches ``*.trycloudflare.com``, and the token is not sent here, but a lying answer
-    still puts that hostname into the pairing QR next to the token. Prefer ``--url`` or
-    ``SHORTCUTS_PUBLIC_URL`` when another local process runs on this machine. Redirects are not
-    followed.
+    There is no automatic tunnel discovery. A missing URL is an error so pairing never guesses a host.
     """
-    opener = opener or _metrics_opener()
-    for port in ports:
-        try:
-            with opener.open(f"http://127.0.0.1:{int(port)}/quicktunnel", timeout=timeout) as resp:
-                data = json.loads(resp.read(4096).decode("utf-8", "replace"))
-        except Exception:
-            continue
-        host = str((data or {}).get("hostname") or "").strip().lower() if isinstance(data, dict) else ""
-        if _QUICK_HOST.match(host):
-            return f"https://{host}"
-    return None
-
-
-def resolve_url(cli_url: Optional[str], allow_http: bool = False, detect=detect_quick_tunnel_url) -> tuple[str, str]:
-    """(base URL, where it came from): --url, then SHORTCUTS_PUBLIC_URL, then a local quick tunnel."""
     if cli_url:
         return normalize_url(cli_url, allow_http), "--url"
     try:  # declared optional_env: read through Hermes' secret scope (profile-aware)
@@ -164,11 +126,9 @@ def resolve_url(cli_url: Optional[str], allow_http: bool = False, detect=detect_
         env_url = _standalone_secret("SHORTCUTS_PUBLIC_URL") or os.environ.get("SHORTCUTS_PUBLIC_URL", "").strip()
     if env_url:
         return normalize_url(env_url, allow_http), "SHORTCUTS_PUBLIC_URL"
-    found = detect()
-    if found:
-        return normalize_url(found), "cloudflared quick tunnel (changes when cloudflared restarts)"
-    raise PairError("no public URL: pass --url https://your-host, set SHORTCUTS_PUBLIC_URL, or start a "
-                    "cloudflared tunnel to http://127.0.0.1:8645")
+    raise PairError("no public URL. Pass --url https://your-host, or set SHORTCUTS_PUBLIC_URL to your "
+                    "HTTPS tunnel URL (hermes config set SHORTCUTS_PUBLIC_URL https://your-host). "
+                    "Pairing does not look for a tunnel on its own.")
 
 
 def build_payload(url: str, token: str) -> str:
@@ -245,8 +205,7 @@ def setup_parser(parser: argparse.ArgumentParser) -> None:
     p = sub.add_parser("pair", help="Show a QR code that pairs the iPhone 'Hermes Setup' shortcut",
                        description="Print a QR code with this server's public URL and your SHORTCUTS_TOKEN. "
                                    "Scan it with the 'Hermes Setup' shortcut on your iPhone.")
-    p.add_argument("--url", help="public HTTPS base URL (default: SHORTCUTS_PUBLIC_URL, else the local "
-                                 "cloudflared quick tunnel)")
+    p.add_argument("--url", help="public HTTPS base URL (default: SHORTCUTS_PUBLIC_URL; required if that is unset)")
     p.add_argument("--png", metavar="PATH", help="also save the QR as a PNG (mode 0600; delete it after pairing)")
     p.add_argument("--show-token", action="store_true", help="also print the token as text (off by default)")
     p.add_argument("--invert", action="store_true", help="for terminals with a light background")
@@ -282,9 +241,6 @@ def run_pair(args, out=None) -> int:
             print(f"hermes shortcuts pair: could not write PNG: {exc.strerror}", file=sys.stderr)
             return 1
         print(f"PNG saved to {png} (mode 0600). It contains your token: delete it after pairing.", file=out)
-    if source.startswith("cloudflared"):
-        print("Note: a quick-tunnel URL changes whenever cloudflared restarts; then run this again and re-scan.",
-              file=out)
     return 0
 
 

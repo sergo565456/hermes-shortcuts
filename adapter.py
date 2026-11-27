@@ -298,7 +298,7 @@ class ShortcutsAdapter(BasePlatformAdapter):
         self._toolset_overrides = extra.get("toolsets") if isinstance(extra.get("toolsets"), dict) else None
         # Client identity for the auth-failure lockout. Proxy headers are honoured only when this is
         # set AND the TCP peer is loopback (i.e. the local tunnel/proxy), so they cannot be spoofed
-        # from outside. Typical value behind cloudflared: CF-Connecting-IP.
+        # from outside. Typical value behind a local HTTPS tunnel: CF-Connecting-IP.
         self._client_ip_header = str(_setting(extra, "client_ip_header", "SHORTCUTS_CLIENT_IP_HEADER", "")).strip()
         events = dict(A.DEFAULT_EVENTS)
         if isinstance(extra.get("events"), dict):
