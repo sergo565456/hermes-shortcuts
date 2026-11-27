@@ -117,10 +117,30 @@ def _is_private_host(host: str) -> bool:
     return ip.is_private or ip.is_loopback or cgnat
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Refuse redirects from the metrics endpoint. A 302 could point the next GET (and, if we
+    trusted the body, the pairing QR) at somewhere other than 127.0.0.1."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def _metrics_opener():
+    """Localhost only, no proxy, no redirects."""
+    return urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect())
+
+
 def detect_quick_tunnel_url(ports: Iterable[int] = METRICS_PORTS, timeout: float = 1.0,
                             opener=None) -> Optional[str]:
-    """Ask a local cloudflared (metrics endpoint, 127.0.0.1 only) for its quick-tunnel hostname."""
-    opener = opener or urllib.request.build_opener(urllib.request.ProxyHandler({}))  # never via a proxy
+    """Ask a local cloudflared (metrics endpoint, 127.0.0.1 only) for its quick-tunnel hostname.
+
+    Any process that can bind 127.0.0.1:20241-20245 can answer this. The hostname is only accepted
+    when it matches ``*.trycloudflare.com``, and the token is not sent here, but a lying answer
+    still puts that hostname into the pairing QR next to the token. Prefer ``--url`` or
+    ``SHORTCUTS_PUBLIC_URL`` when another local process runs on this machine. Redirects are not
+    followed.
+    """
+    opener = opener or _metrics_opener()
     for port in ports:
         try:
             with opener.open(f"http://127.0.0.1:{int(port)}/quicktunnel", timeout=timeout) as resp:

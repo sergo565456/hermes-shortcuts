@@ -67,6 +67,10 @@ class _Opener:
         return _Resp(ans)
 
 
+def test_metrics_opener_refuses_redirects():
+    assert pair._NoRedirect().redirect_request(None, None, 302, "Found", {}, "http://evil.example/") is None
+
+
 def test_detect_quick_tunnel_scans_local_ports():
     op = _Opener({"http://127.0.0.1:20242/quicktunnel": b'{"hostname":"adsl-foo-bar.trycloudflare.com"}'})
     assert pair.detect_quick_tunnel_url(opener=op) == "https://adsl-foo-bar.trycloudflare.com"

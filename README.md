@@ -27,6 +27,32 @@ endpoint that your phone can call:
 
 Then say *"Hey Siri, Ask Hermes"*, or share a link and choose **Hermes**.
 
+## Demo
+
+These are diagrams of the path, not screenshots of iOS. Real UI captures are left as TODOs in
+[`docs/gallery/`](docs/gallery/) so a picture of someone else's phone is not invented here. The catalog
+draft points at the same files (up to 6 images). Replace a diagram with a screenshot you took when you
+have one.
+
+```mermaid
+flowchart LR
+  phone["iPhone shortcut"] --> tunnel["HTTPS tunnel"]
+  tunnel --> api["127.0.0.1:8645 bearer token"]
+  api --> hermes["Hermes turn"]
+  hermes --> phone
+  hermes --> telegram["Telegram home channel"]
+```
+
+| Diagram | What it shows |
+|---|---|
+| [banner.svg](docs/gallery/banner.svg) | Phone, tunnel, loopback listener, Hermes |
+| [entries.svg](docs/gallery/entries.svg) | Siri, Share Sheet, Photo |
+| [flow.svg](docs/gallery/flow.svg) | POST, agent turn, JSON or Speak Text |
+| [pairing.svg](docs/gallery/pairing.svg) | QR to `hermes.json` (the QR itself is not pictured) |
+| [homepod.svg](docs/gallery/homepod.svg) | What a HomePod can and cannot do |
+
+TODO: screenshot of the Share Sheet menu. TODO: screenshot of Ask Hermes after a spoken answer. TODO: do not commit a real pairing QR.
+
 `hermes shortcuts pair` options: `--url https://your-host` (else `SHORTCUTS_PUBLIC_URL`, else the URL of a
 cloudflared quick tunnel running on this machine), `--invert` (light terminal background), `--png FILE` (saves a
 0600 PNG; delete it after pairing), `--show-token` (also prints the token as text; off by default). If your Hermes
@@ -116,8 +142,17 @@ Binding a non-loopback address directly requires `SHORTCUTS_HOST=0.0.0.0` **and*
 
 ## Configuration
 
-All settings are environment entries read through `agent.secret_scope.get_secret`. Set them with `hermes config set NAME value`.
-Optional YAML overrides go in `config.yaml → gateway.platforms.shortcuts.extra`.
+`hermes plugins config hermes-shortcuts` edits the settings declared in `plugin.yaml` `config_schema`
+(Hermes v0.23.4). The token is a `type: secret` field: the form writes it to `SHORTCUTS_TOKEN` in
+`~/.hermes/.env` and never to `config.yaml`. Other fields are stored under
+`plugins.entries.hermes-shortcuts.settings`.
+
+An environment variable set with `hermes config set NAME value` still wins over that settings block,
+which wins over `config.yaml → gateway.platforms.shortcuts.extra`. Existing installs that only use
+`hermes config set` keep working. `SHORTCUTS_ALLOWED_USERS` is read by the gateway itself
+(`optional_env` in the manifest), not by the settings form.
+
+All values are read through `agent.secret_scope.get_secret` when they live in the environment.
 
 | Env | Default | Meaning |
 |---|---|---|
@@ -281,13 +316,17 @@ The published *Ask Hermes* shortcut doesn't send `notify`, so the spoken command
 7. **Get Dictionary Value** `reply` from *Contents of URL* → **Show Result**.
 
 ### 3. "Hermes Photo" (photo as task)
-1. New shortcut **Hermes Photo** (add it to the Home Screen or the Action Button).
+1. New shortcut **Hermes Photo** (add it to the Home Screen or the Action Button; see below).
 2. The **config block**.
-3. **Take Photo**, or **Select Photos** → **Convert Image** to **JPEG**, quality ~0.7. HEIC is rejected, and JPEG keeps uploads small.
+3. **Take Photo**, or **Select Photos**. Send the photo as-is. iPhone photos are HEIC/HEIF; the server
+   re-encodes them to JPEG with pillow-heif, which Hermes already ships on Python 3.14 and newer.
+   If the server answers `415` (pillow-heif is not installed), add **Convert Image** to **JPEG**, quality ~0.7,
+   and send *Converted Image* instead. Converting on the phone also keeps the upload smaller on a slow link.
 4. **Choose from Menu**: `Receipt` / `Whiteboard` / `Document` / `Auto`. Inside each item add **Text** with the
    lowercase name, then after the menu **Set Variable** `Action` = *Menu Result*.
 5. **Get Contents of URL**. URL: `HermesURL` + `/v1/share`, **POST**, header `Authorization` = `Bearer ` +
-   `HermesToken`. Request Body **Form**: `action` (Text) = `Action`, `file` (**File**) = *Converted Image*.
+   `HermesToken`. Request Body **Form**: `action` (Text) = `Action`, `file` (**File**) = *Photo* (or *Converted Image*
+   if you kept the convert step).
 6. **Get Dictionary Value** `reply` → **Show Result**.
 
 ### 4. Event triggers (Automations)
@@ -295,6 +334,49 @@ Shortcuts → **Automation** → **+** → *Arrive* (Home), *Alarm* (is stopped)
 connected)… → **Run Immediately**. Add the **config block**, then **Get Contents of URL**:
 `HermesURL` + `/v1/event`, POST, header `Authorization` = `Bearer ` + `HermesToken`, JSON body `event` =
 `arrived_home` (or `alarm_off`, `charger_connected`, a custom name). The reply goes to Telegram.
+
+### 5. Action Button
+The Action Button (iPhone 15 Pro and later, and some iPads) runs one shortcut. It does not receive the
+Share Sheet item, so point it at **Ask Hermes** or **Hermes Photo**, not at the share shortcut.
+
+1. Settings → **Action Button** → **Shortcut**.
+2. Choose **Ask Hermes** (voice) or **Hermes Photo** (camera).
+3. Press the button. The first run asks for the same file and network permissions as running the shortcut by hand.
+
+The share shortcut stays in the Share Sheet. The Action Button cannot both share the current page and take a photo.
+
+### 6. Spoken replies (Siri and Speak Text)
+Ask Hermes uses two different voices, and they are easy to mix up:
+
+* **Siri** is only how you start the shortcut ("Hey Siri, Ask Hermes") and how **Dictate Text** hears the question.
+  Dictation is on the device. Nothing audio is uploaded.
+* **Speak Text** is what reads the HTTP body out loud. Use `POST /v1/ask?format=text` so the action receives the
+  bare reply, not a JSON object. The shortcut's Speak Text language, rate and voice are the ones you set on that
+  action. They do not have to match the dictation language.
+
+The phone only speaks the synchronous body. If the wait exceeds the timeout (default 25 s, max 120 s), the body
+is "Working on it…" and the real answer is sent to Telegram. Siri and Speak Text do not read the Telegram message
+later. Siri also gives up on its own schedule, which can be shorter than `SHORTCUTS_SYNC_TIMEOUT`; raising the
+plugin timeout does not make Siri wait longer than Apple allows.
+
+`notify` does not change what is spoken. It only decides whether the same reply is also copied to Telegram.
+
+### 7. HomePod
+A HomePod can run **Ask Hermes** only as a personal request. It cannot replace the phone.
+
+* Turn on **Personal Requests** for that HomePod (Home app → the HomePod → Personal Requests) with the same Apple ID.
+* The shortcut runs on the **paired iPhone**, not on the HomePod. The speaker is the microphone and the loudspeaker.
+  The iPhone has to be on and reachable. If it is off or has no network, the shortcut fails.
+* `hermes.json` is read on the iPhone. Pairing is not stored on the HomePod. A second iPhone needs its own Setup scan.
+* **Share Sheet** and **Hermes Photo** cannot be started from a HomePod. There is no share sheet and no camera on the speaker.
+* When it works, Speak Text is played back on the HomePod. There is no screen, so a shortcut that only does **Show Result**
+  is silent there.
+* A timeout still says "Working on it…" out loud. The finished answer arrives in Telegram, and the HomePod will not read it.
+* Home automations (arrive home, charger) are the event shortcuts above. They are not voice, and they
+  also run on the iPhone.
+
+Apple changes this between iOS versions. The limits above are the ones that matter for this plugin: the HomePod does
+not open your tunnel by itself, and it does not keep your token.
 
 ### Troubleshooting
 * **"File not found" / "hermes.json"**: run *Hermes Setup* again. In the Files app, check that *iCloud Drive →
@@ -359,8 +441,20 @@ connected)… → **Run Immediately**. Add the **config block**, then **Get Cont
   `platforms.telegram.extra.disable_link_previews: true` in `config.yaml` to cover Telegram replies from other sessions.
 * **Limits:** uploads ≤ 15 MB per request and 200 MB per hour (configurable), ≤ 4 files, 20 requests/min, 3 concurrent,
   auth-failure lockout (10 failures / 5 min per client, which never locks out the valid token). Images are
-  type-sniffed by magic bytes; HEIC is rejected; document names are reduced to a safe basename. Files from a rejected
-  request are deleted.
+  type-sniffed by magic bytes. HEIC/HEIF and AVIF are re-encoded to JPEG with pillow-heif when it is installed
+  (Hermes ships it on Python 3.14+), and rejected with `415` when it is not. Decoded images are capped (8000 px
+  on a side, 24 megapixels) so a small file cannot expand into a huge bitmap. Executables (ELF, MZ, a shebang)
+  are rejected. Document names are reduced to a safe basename. Files from a rejected request are deleted.
+  A token in the query string is rejected (`400`) and is not logged.
+* **Secrets in shared content:** before the prompt is stored, before a `memory` or reminder-tool argument is
+  accepted, and before a reply is returned to the phone or forwarded, the text goes through
+  `ctx.redact_text(text, force=True)` on Hermes >= 0.23.2. Older 0.23.x builds (this plugin still allows
+  `>=0.23.1`) use a smaller local scrubber. The bearer token itself is stripped either way. Image pixels are
+  not scrubbed; a secret printed on a photo can still be seen by the vision model, and Hermes may keep the
+  assistant transcript. The forward and the memory write are scrubbed.
+* **Private URLs:** a `url` that is a literal loopback, private, link-local or cloud-metadata address is removed
+  before the agent is asked to open it. Ordinary hostnames are left for Hermes' web tools, which do their own
+  SSRF checks. That does not stop a page you shared from containing such a link in its body.
 * **Privacy / data:** shared content goes to your LLM provider like any message. Uploaded files are written to Hermes'
   media cache (`~/.hermes/cache/…`, pruned after ~24 h). Every request is a fresh gateway session
   (`agent:main:shortcuts:dm:sc-…`) kept in Hermes' session database (`state.db`) like your other chats. The plugin never
@@ -406,9 +500,9 @@ connected)… → **Run Immediately**. Add the **config block**, then **Get Cont
 ## Development
 
 ```bash
-cd tests && python3 -m pytest -q          # unit + adapter tests (auth, lockout, toolsets, uploads, fencing)
-hermes plugins validate ./hermes-shortcuts
-hermes plugins doctor ./hermes-shortcuts --ci
+cd tests && python3 -m pytest -q          # unit + adapter tests (auth, lockout, toolsets, uploads, fencing, redaction, HEIC)
+hermes plugins validate .             # against Hermes v0.23.4; CI installs that tag
+hermes plugins doctor . --ci
 ```
 
 Layout: `plugin.yaml`, `__init__.py` (exports `register`), `adapter.py` (gateway platform adapter and aiohttp listener),

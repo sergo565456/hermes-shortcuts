@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540" viewBox="0 0 960 540">
+  <rect width="960" height="540" fill="#1c1917"/>
+  <text x="40" y="48" fill="#f59e0b" font-family="ui-sans-serif, sans-serif" font-size="18">DIAGRAM, NOT A SCREENSHOT</text>
+  <text x="40" y="90" fill="#fafaf9" font-family="ui-sans-serif, sans-serif" font-size="28">Pairing</text>
+  <g font-family="ui-sans-serif, sans-serif" font-size="16" fill="#fafaf9">
+    <rect x="40" y="140" width="250" height="90" rx="10" fill="#292524" stroke="#f59e0b"/>
+    <text x="165" y="180" text-anchor="middle">hermes shortcuts pair</text>
+    <text x="165" y="204" text-anchor="middle" font-size="13" fill="#a8a29e">QR holds URL + token</text>
+    <rect x="355" y="140" width="250" height="90" rx="10" fill="#292524" stroke="#a8a29e"/>
+    <text x="480" y="180" text-anchor="middle">Hermes Setup</text>
+    <text x="480" y="204" text-anchor="middle" font-size="13" fill="#a8a29e">scans the QR once</text>
+    <rect x="670" y="140" width="250" height="90" rx="10" fill="#292524" stroke="#a8a29e"/>
+    <text x="795" y="180" text-anchor="middle">hermes.json</text>
+    <text x="795" y="204" text-anchor="middle" font-size="13" fill="#a8a29e">iCloud Drive / Shortcuts</text>
+  </g>
+  <text x="40" y="300" fill="#fafaf9" font-family="ui-sans-serif, sans-serif" font-size="18">Other shortcuts read hermes.json. They contain no token, so the iCloud links are safe to publish.</text>
+  <text x="40" y="350" fill="#f59e0b" font-family="ui-sans-serif, sans-serif" font-size="18">Do not photograph the QR. Clear the terminal after pairing. Delete any --png file.</text>
+  <text x="40" y="450" fill="#a8a29e" font-family="ui-sans-serif, sans-serif" font-size="16">TODO: this is not a picture of the terminal QR. Do not commit a real pairing QR.</text>
+</svg>

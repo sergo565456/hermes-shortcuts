@@ -110,7 +110,8 @@ def test_rejected_request_cleans_cached_files_and_long_name_is_400():
         form.add_field("file", b"hello", filename="../../../../etc/evil.txt")
         form.add_field("file", heic, filename="p.heic")
         r = await s.post(u + "/v1/share", data=form, headers=H)
-        assert r.status == 415
+        # 415 when pillow-heif is missing, 400 when it is installed but the bytes are not a real photo.
+        assert r.status in (400, 415)
         assert set(C.CACHE.iterdir()) == before  # nothing left behind
         form = aiohttp.FormData()
         form.add_field("action", "document")
@@ -372,8 +373,8 @@ def test_spoken_save_request_forwards_ask_reply():
         assert r.status == 200 and not sent  # a plain ask stays on the phone
         r = await s.post(u + "/v1/ask", json={"text": "What is 2+2? Save the answer."}, headers=H)
         body = await r.json()
-        assert body["forwarded_to"] == "telegram" and len(sent) == 1 and "Shortcuts · ask" in sent[0]
-        assert ad.last_event.text == "What is 2+2?"  # trailing command removed from the question
+        assert body["forwarded_to"] == "telegram" and len(sent) == 1 and "Shortcuts · Siri · ask" in sent[0]
+        assert ad.last_event.text == "[Phone source: Siri]\nWhat is 2+2?"  # trailing command removed
         r = await s.post(u + "/v1/ask", json={"text": "Сохрани ответ сколько будет два плюс два"}, headers=H)
         assert (await r.json())["forwarded_to"] == "telegram" and len(sent) == 2
         assert ad.last_event.text.endswith(A.SAVE_NOTE)  # command left inside the question: note added

@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540" viewBox="0 0 960 540">
+  <rect width="960" height="540" fill="#1c1917"/>
+  <text x="40" y="48" fill="#f59e0b" font-family="ui-sans-serif, sans-serif" font-size="18">DIAGRAM, NOT A SCREENSHOT</text>
+  <text x="40" y="90" fill="#fafaf9" font-family="ui-sans-serif, sans-serif" font-size="28">HomePod limits</text>
+  <g font-family="ui-sans-serif, sans-serif" font-size="16" fill="#fafaf9">
+    <rect x="40" y="140" width="180" height="70" rx="10" fill="#292524" stroke="#a8a29e"/>
+    <text x="130" y="180" text-anchor="middle">HomePod mic</text>
+    <rect x="270" y="140" width="180" height="70" rx="10" fill="#292524" stroke="#f59e0b"/>
+    <text x="360" y="172" text-anchor="middle">Paired iPhone</text>
+    <text x="360" y="194" text-anchor="middle" font-size="13" fill="#a8a29e">shortcut runs here</text>
+    <rect x="500" y="140" width="180" height="70" rx="10" fill="#292524" stroke="#a8a29e"/>
+    <text x="590" y="180" text-anchor="middle">Hermes</text>
+    <rect x="730" y="140" width="190" height="70" rx="10" fill="#292524" stroke="#a8a29e"/>
+    <text x="825" y="172" text-anchor="middle">Speak Text</text>
+    <text x="825" y="194" text-anchor="middle" font-size="13" fill="#a8a29e">plays on the HomePod</text>
+  </g>
+  <text x="40" y="280" fill="#fafaf9" font-family="ui-sans-serif, sans-serif" font-size="18">Works: "Hey Siri, Ask Hermes", if Personal Requests are on and the iPhone is reachable.</text>
+  <text x="40" y="320" fill="#f87171" font-family="ui-sans-serif, sans-serif" font-size="18">Does not work from the HomePod: Share Sheet, camera, reading hermes.json on the speaker itself.</text>
+  <text x="40" y="360" fill="#f87171" font-family="ui-sans-serif, sans-serif" font-size="18">A timed-out answer goes to Telegram. The HomePod does not read that message aloud.</text>
+  <text x="40" y="450" fill="#a8a29e" font-family="ui-sans-serif, sans-serif" font-size="16">TODO: replace with your own notes if Apple's behavior differs on your OS version.</text>
+</svg>

@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540" viewBox="0 0 960 540">
+  <rect width="960" height="540" fill="#1c1917"/>
+  <text x="40" y="48" fill="#f59e0b" font-family="ui-sans-serif, sans-serif" font-size="18">DIAGRAM, NOT A SCREENSHOT</text>
+  <text x="40" y="90" fill="#fafaf9" font-family="ui-sans-serif, sans-serif" font-size="28">Three ways in</text>
+  <g font-family="ui-sans-serif, sans-serif" fill="#fafaf9">
+    <rect x="40" y="140" width="270" height="220" rx="12" fill="#292524" stroke="#f59e0b"/>
+    <text x="175" y="190" text-anchor="middle" font-size="24">Siri</text>
+    <text x="175" y="230" text-anchor="middle" font-size="15" fill="#a8a29e">Hey Siri, Ask Hermes</text>
+    <text x="175" y="260" text-anchor="middle" font-size="15" fill="#a8a29e">POST /v1/ask</text>
+    <text x="175" y="300" text-anchor="middle" font-size="15" fill="#a8a29e">Speak Text reads the reply</text>
+    <rect x="345" y="140" width="270" height="220" rx="12" fill="#292524" stroke="#a8a29e"/>
+    <text x="480" y="190" text-anchor="middle" font-size="24">Share Sheet</text>
+    <text x="480" y="230" text-anchor="middle" font-size="15" fill="#a8a29e">Link, text, PDF</text>
+    <text x="480" y="260" text-anchor="middle" font-size="15" fill="#a8a29e">POST /v1/share</text>
+    <text x="480" y="300" text-anchor="middle" font-size="15" fill="#a8a29e">Summarize, remember, remind</text>
+    <rect x="650" y="140" width="270" height="220" rx="12" fill="#292524" stroke="#a8a29e"/>
+    <text x="785" y="190" text-anchor="middle" font-size="24">Photo</text>
+    <text x="785" y="230" text-anchor="middle" font-size="15" fill="#a8a29e">HEIC is accepted</text>
+    <text x="785" y="260" text-anchor="middle" font-size="15" fill="#a8a29e">when pillow-heif is installed</text>
+    <text x="785" y="300" text-anchor="middle" font-size="15" fill="#a8a29e">Receipt, whiteboard, document</text>
+  </g>
+  <text x="40" y="430" fill="#fafaf9" font-family="ui-sans-serif, sans-serif" font-size="16">TODO: photos of these three shortcuts can replace this diagram (up to 6 in the catalog).</text>
+</svg>

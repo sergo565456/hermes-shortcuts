@@ -1,0 +1,51 @@
+name: test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Unit tests
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pytest aiohttp
+          cd tests && python -m pytest -q
+
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          # Hermes v0.23.4 marks its runtime dependencies for Python >= 3.14 only.
+          python-version: "3.14"
+      - name: Install Hermes v0.23.4 and validate the plugin
+        run: |
+          python -m pip install --upgrade pip
+          # Upstream setup.py refuses wheels and sdists. Editable install of the
+          # v0.23.4 tag is the supported pip path (build_editable, not bdist_wheel).
+          # A full dependency solve is unsatisfiable on this tag: browser-harness
+          # 0.1.13 pins Pillow==12.3.0 and hermes-agent pins Pillow==13.0.0.
+          # Validate does not import browser-harness, so the agent is installed
+          # --no-deps and the libraries the CLI actually imports are installed next.
+          git clone --depth 1 --branch v0.23.4 https://github.com/NousResearch/hermes-agent.git "$RUNNER_TEMP/hermes-agent"
+          python -m pip install -e "$RUNNER_TEMP/hermes-agent" --no-deps
+          python -m pip install \
+            'openai==2.54.0' 'certifi==2026.10.19' 'truststore==0.10.5' 'python-dotenv==1.2.4' \
+            'fire==0.7.1' 'httpx[socks]==0.28.1' 'rich==14.3.4' 'tomli-w==1.2.0' \
+            'ruamel.yaml==0.18.16' 'ruamel.yaml.clib==0.2.15' 'requests==2.34.2' 'jinja2==3.1.6' \
+            'pydantic==2.14.1' 'prompt_toolkit==3.0.53' 'croniter==6.2.4' 'packaging==26.3' \
+            'PyJWT[crypto]==2.15.1' 'urllib3>=2.8,<3' 'cryptography==50.0.2' 'psutil==7.2.2' \
+            'websockets==15.0.1' 'pathspec==1.1.1' 'fastapi>=0.104,<1' 'uvicorn>=0.31,<1' \
+            'httptools>=0.6.3,<0.9' 'watchfiles>=0.20,<2' 'python-multipart>=0.0.9,<1' \
+            'ptyprocess>=0.7,<1' 'Pillow==13.0.0' 'pillow-heif>=1.4,<2' 'aiohttp==3.14.5' \
+            'Markdown==3.11.2'
+          hermes plugins validate .
+          hermes plugins doctor . --ci

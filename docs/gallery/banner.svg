@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="600" viewBox="0 0 1200 600">
+  <rect width="1200" height="600" fill="#1c1917"/>
+  <text x="60" y="70" fill="#f59e0b" font-family="ui-sans-serif, sans-serif" font-size="22">DIAGRAM, NOT A SCREENSHOT</text>
+  <text x="60" y="130" fill="#fafaf9" font-family="ui-sans-serif, sans-serif" font-size="48">Hermes Shortcuts</text>
+  <text x="60" y="180" fill="#a8a29e" font-family="ui-sans-serif, sans-serif" font-size="22">Share Sheet, Siri, and Photo, through one token-protected endpoint</text>
+  <g font-family="ui-sans-serif, sans-serif" font-size="20" fill="#fafaf9">
+    <rect x="60" y="250" width="200" height="80" rx="12" fill="#292524" stroke="#f59e0b"/>
+    <text x="160" y="296" text-anchor="middle">iPhone</text>
+    <rect x="360" y="250" width="220" height="80" rx="12" fill="#292524" stroke="#a8a29e"/>
+    <text x="470" y="296" text-anchor="middle">HTTPS tunnel</text>
+    <rect x="680" y="250" width="220" height="80" rx="12" fill="#292524" stroke="#a8a29e"/>
+    <text x="790" y="286" text-anchor="middle">127.0.0.1:8645</text>
+    <text x="790" y="312" text-anchor="middle" font-size="14" fill="#a8a29e">bearer token</text>
+    <rect x="980" y="250" width="160" height="80" rx="12" fill="#292524" stroke="#a8a29e"/>
+    <text x="1060" y="296" text-anchor="middle">Hermes</text>
+  </g>
+  <g stroke="#f59e0b" stroke-width="3" fill="none">
+    <path d="M260 290 H360"/>
+    <path d="M580 290 H680"/>
+    <path d="M900 290 H980"/>
+  </g>
+  <text x="60" y="420" fill="#a8a29e" font-family="ui-sans-serif, sans-serif" font-size="20">Reply returns in the HTTP response. A copy can go to your Telegram home channel.</text>
+  <text x="60" y="500" fill="#fafaf9" font-family="ui-sans-serif, sans-serif" font-size="18">TODO: replace this diagram with a real 2:1 banner (about 1200x600) if you want one.</text>
+</svg>

@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540" viewBox="0 0 960 540">
+  <rect width="960" height="540" fill="#1c1917"/>
+  <text x="40" y="48" fill="#f59e0b" font-family="ui-sans-serif, sans-serif" font-size="18">DIAGRAM, NOT A SCREENSHOT</text>
+  <text x="40" y="90" fill="#fafaf9" font-family="ui-sans-serif, sans-serif" font-size="28">Request flow</text>
+  <g font-family="ui-sans-serif, sans-serif" font-size="16" fill="#fafaf9">
+    <rect x="40" y="130" width="200" height="70" rx="10" fill="#292524" stroke="#f59e0b"/>
+    <text x="140" y="170" text-anchor="middle">Shortcut</text>
+    <rect x="300" y="130" width="200" height="70" rx="10" fill="#292524" stroke="#a8a29e"/>
+    <text x="400" y="162" text-anchor="middle">POST /v1/ask</text>
+    <text x="400" y="182" text-anchor="middle" font-size="13" fill="#a8a29e">or /v1/share, /v1/event</text>
+    <rect x="560" y="130" width="160" height="70" rx="10" fill="#292524" stroke="#a8a29e"/>
+    <text x="640" y="170" text-anchor="middle">Agent turn</text>
+    <rect x="760" y="130" width="160" height="70" rx="10" fill="#292524" stroke="#a8a29e"/>
+    <text x="840" y="162" text-anchor="middle">JSON reply</text>
+    <text x="840" y="182" text-anchor="middle" font-size="13" fill="#a8a29e">or Speak Text</text>
+  </g>
+  <g stroke="#f59e0b" stroke-width="2">
+    <path d="M240 165 H300"/>
+    <path d="M500 165 H560"/>
+    <path d="M720 165 H760"/>
+  </g>
+  <text x="40" y="270" fill="#a8a29e" font-family="ui-sans-serif, sans-serif" font-size="16">Authorization: Bearer, from hermes.json. The token is not in the shortcut.</text>
+  <text x="40" y="310" fill="#a8a29e" font-family="ui-sans-serif, sans-serif" font-size="16">Shared text is scrubbed for secrets before the prompt, memory, and Telegram.</text>
+  <text x="40" y="350" fill="#a8a29e" font-family="ui-sans-serif, sans-serif" font-size="16">Each turn is labelled Siri, Share Sheet, Photo, or Event.</text>
+  <text x="40" y="460" fill="#fafaf9" font-family="ui-sans-serif, sans-serif" font-size="16">TODO: a real screenshot of the Share Sheet menu can replace this diagram.</text>
+</svg>

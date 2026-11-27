@@ -1,7 +1,7 @@
 name: hermes-shortcuts
 label: Hermes Shortcuts
 kind: platform
-version: 0.1.0
+version: 0.2.0
 description: >
   Token-authenticated HTTP entry for iOS Shortcuts / Android HTTP Shortcuts:
   Share Sheet (links, text, PDFs, screenshots, photos) with action presets,
@@ -18,6 +18,7 @@ platforms:
   - macos
 provides_hooks:
   - pre_tool_call
+  - pre_llm_call
 requires_env:
   - name: SHORTCUTS_TOKEN
     description: "Bearer token your phone sends; 32+ random chars, placeholders refused (generate: openssl rand -hex 32)"
@@ -76,3 +77,77 @@ optional_env:
     description: "Public HTTPS base URL for `hermes shortcuts pair` (default: auto-detect a local cloudflared quick tunnel)"
     prompt: "Public HTTPS URL (optional)"
     password: false
+
+# Settings form for `hermes plugins config hermes-shortcuts` and the Desktop Plugins page.
+# Secrets use type: secret and stay in .env under `env:` (never config.yaml). Non-secrets are
+# stored in plugins.entries.hermes-shortcuts.settings. An environment variable set with
+# `hermes config set` still wins over that, which wins over gateway.platforms.shortcuts.extra.
+# redact_text needs Hermes >=0.23.2 and turn_client/session_surface need >=0.23.4. Both are
+# detected at runtime; requires_hermes stays >=0.23.1 so older patch releases still load.
+config_schema:
+  token:
+    type: secret
+    env: SHORTCUTS_TOKEN
+    label: Shortcuts token
+    description: "Bearer token the phone sends. At least 32 random characters. Generate with: openssl rand -hex 32. Stored in .env, not config.yaml. The plugin also refuses to listen until SHORTCUTS_TOKEN is set."
+  host:
+    type: str
+    default: "127.0.0.1"
+    label: Bind address
+    description: "Listen address. The default is loopback. A non-loopback address also needs allow_public_bind."
+  port:
+    type: int
+    default: 8645
+    label: Port
+    description: "Listen port (1-65535)."
+  allow_public_bind:
+    type: bool
+    default: false
+    label: Allow public bind
+    description: "Opt in to binding a non-loopback address. Leave this off and use an HTTPS tunnel."
+  sync_timeout:
+    type: int
+    default: 25
+    label: Sync timeout
+    description: "Seconds to wait for a reply before telling the phone the result will arrive on Telegram (3-120)."
+  notify_target:
+    type: str
+    default: telegram
+    label: Notify target
+    description: "Platform whose home channel receives forwarded replies. 'none' disables forwarding."
+  rate_limit:
+    type: int
+    default: 20
+    label: Rate limit
+    description: "Maximum accepted requests per minute (1-600)."
+  max_upload_mb:
+    type: int
+    default: 15
+    label: Max upload MB
+    description: "Per-request upload cap in megabytes (1-50)."
+  max_upload_mb_per_hour:
+    type: int
+    default: 200
+    label: Upload MB per hour
+    description: "Total upload budget per hour, to bound media-cache disk use."
+  tool_profile:
+    type: str
+    choices: [safe, full]
+    default: safe
+    label: Tool profile
+    description: "safe limits each action to the toolsets it needs. full uses the platform default toolset."
+  max_reminder_repeat:
+    type: int
+    default: 1
+    label: Max reminder repeats
+    description: "How many times a reminder created from the phone may run (1-100). 1 means one-shot. The phone cannot delete the job."
+  client_ip_header:
+    type: str
+    default: ""
+    label: Client IP header
+    description: "Header set by your local tunnel (for example CF-Connecting-IP). Used only for the auth lockout, and only when the TCP peer is loopback."
+  public_url:
+    type: str
+    default: ""
+    label: Public URL
+    description: "HTTPS base URL that `hermes shortcuts pair` puts in the QR code. Leave empty to auto-detect a local quick tunnel."
